@@ -46,7 +46,7 @@ mavshark replay udpin:0.0.0.0:14550 output.txt
 
 #### Why a heartbeat
 
-Mavrouter will only route traffic with a header.system_id to a connection that is sending messages with that system_id. So sending the same heartbeat as a receiving system_id will allow for sniffing all their incoming messages. Also, if SnifferSysId is set in mavrouter and a connection sends a heartbeat with that system_id, that connection will receive all traffic.
+Mavrouter will only route traffic with a header.system_id to a connection that is sending messages with that system_id. So sending the same heartbeat as a receiving system_id will allow for sniffing all their incoming messages. Note that all messages from the drone get sent towards the connection untill mavrouter correctly registers the connection as the drones group when sending heartbeats with the drones id. This takes some seconds. Also, if SnifferSysId is set in mavrouter and a connection sends a heartbeat with that system_id, that connection will receive all traffic.
 
 #### Why output to binary or .txt
 
