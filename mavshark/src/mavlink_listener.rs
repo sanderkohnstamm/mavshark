@@ -1,120 +1,47 @@
-use mavlink::{
-    common::{MavAutopilot, MavMessage, MavModeFlag, MavState, MavType},
-    MavConnection, MavHeader,
-};
+use mavlink::{common::MavMessage, MavConnection};
 use std::{
+    fs::File,
+    io::{BufWriter, Write},
     sync::{Arc, Mutex},
-    thread,
     time::{Duration, Instant},
 };
 
 pub struct MavlinkListener {
-    address: String,
     duration: Option<Duration>,
-    heartbeat_id: Option<u8>, // Optional heartbeat system ID
     include_system_ids: Vec<u8>,
     exclude_system_ids: Vec<u8>,
     include_component_ids: Vec<u8>,
     exclude_component_ids: Vec<u8>,
+    output_file: Option<String>,
 }
 
 impl MavlinkListener {
     pub fn new(
-        address: String,
         duration: Option<Duration>,
-        heartbeat_id: Option<u8>, // Optional heartbeat system ID
         include_system_ids: Vec<u8>,
         exclude_system_ids: Vec<u8>,
         include_component_ids: Vec<u8>,
         exclude_component_ids: Vec<u8>,
+        output_file: Option<String>,
     ) -> Self {
         MavlinkListener {
-            address,
             duration,
-            heartbeat_id,
             include_system_ids,
             exclude_system_ids,
             include_component_ids,
             exclude_component_ids,
+            output_file,
         }
     }
 
-    fn start_heartbeat_loop(
-        connection: Arc<Mutex<Box<dyn MavConnection<MavMessage> + Send + Sync>>>,
-        heartbeat_id: u8,
-    ) {
-        let heartbeat_interval = Duration::from_secs(1);
-        thread::spawn(move || {
-            let mut has_printed = false;
-            let mut has_printed_err = false;
-            loop {
-                let heartbeat = MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA {
-                    custom_mode: 0,
-                    mavtype: MavType::MAV_TYPE_GENERIC,
-                    autopilot: MavAutopilot::MAV_AUTOPILOT_INVALID,
-                    base_mode: MavModeFlag::empty(),
-                    system_status: MavState::MAV_STATE_ACTIVE,
-                    mavlink_version: 3,
-                });
-
-                let header = MavHeader {
-                    system_id: heartbeat_id,
-                    component_id: 1,
-                    sequence: 0,
-                };
-
-                // Lock the connection, send the heartbeat, then release the lock
-                {
-                    let conn = connection.lock().unwrap();
-                    if let Err(e) = conn.send(&header, &heartbeat) {
-                        if !has_printed_err {
-                            eprintln!("⚠️ Failed to send heartbeat: {}", e);
-                            has_printed = false;
-                            has_printed_err = true;
-                        }
-                    } else {
-                        if !has_printed {
-                            println!("Sent heartbeat as System ID 240. Repeating ...");
-                            has_printed = true;
-                            has_printed_err = false;
-                        }
-                    }
-                } // Mutex is released here!
-
-                thread::sleep(heartbeat_interval);
-            }
-        });
-    }
-
-    pub fn listen(&self) {
-        println!("Starting MAVLink listener with configuration:");
-        println!(
-            "Address: {}\nDuration: {:?}\nHeartbeat ID: {:?}\nInclude System IDs: {:?}\n\
-            Exclude System IDs: {:?}\nInclude Component IDs: {:?}\nExclude Component IDs: {:?}",
-            self.address,
-            self.duration,
-            self.heartbeat_id,
-            self.include_system_ids,
-            self.exclude_system_ids,
-            self.include_component_ids,
-            self.exclude_component_ids
-        );
-
-        println!("Waiting for MAVLink connection ...");
-
-        let connection = mavlink::connect::<MavMessage>(&self.address).expect(&format!(
-            "Couldn't open MAVLink connection at {}",
-            self.address
-        ));
-
-        let connection = Arc::new(Mutex::new(connection));
-
-        if let Some(heartbeat_id) = self.heartbeat_id {
-            Self::start_heartbeat_loop(connection.clone(), heartbeat_id);
-        }
-
+    pub fn listen(&self, connection: Arc<Mutex<Box<dyn MavConnection<MavMessage> + Send + Sync>>>) {
+        println!("Listening for MAVLink messages...");
         let start_time = Instant::now();
         let mut has_printed_err = false;
+        let mut output_writer = self.output_file.as_ref().map(|filename| {
+            BufWriter::new(File::create(filename).expect("Failed to create output file"))
+        });
+
         loop {
             if let Some(duration) = self.duration {
                 if start_time.elapsed() > duration {
@@ -145,12 +72,18 @@ impl MavlinkListener {
                         continue;
                     }
 
-                    println!(
-                        "----------------------------------------\n\n\
-                            System ID: {}, Component ID: {}\n\
-                            {:#?}\n",
+                    let log_message = format!(
+                        "System ID: {}, Component ID: {} \n {:#?}\n",
                         header.system_id, header.component_id, message
                     );
+                    println!("{}", log_message);
+
+                    if let Some(writer) = output_writer.as_mut() {
+                        let output_message = format!("{:#?}\n", message);
+                        writeln!(writer, "{}", output_message)
+                            .expect("Failed to write to output file");
+                        writer.flush().expect("Failed to flush output file");
+                    }
 
                     has_printed_err = false;
                 }
@@ -159,7 +92,6 @@ impl MavlinkListener {
                         eprintln!("Error receiving MAVLink message: {}", e);
                         has_printed_err = true;
                     }
-                    continue;
                 }
             }
         }

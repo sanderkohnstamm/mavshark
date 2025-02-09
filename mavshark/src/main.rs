@@ -1,8 +1,16 @@
 mod mavlink_listener;
 
 use clap::{Arg, Command};
+use mavlink::{
+    common::{MavAutopilot, MavMessage, MavModeFlag, MavState, MavType},
+    MavConnection, MavHeader,
+};
 use mavlink_listener::MavlinkListener;
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
 fn main() {
     let matches = Command::new("mavshark")
@@ -11,7 +19,7 @@ fn main() {
         .about("MAVLink Listener CLI")
         .subcommand(
             Command::new("listen")
-                .about("Listens to MAVLink messages from various connection types")
+                .about("Listens to MAVLink messages")
                 .arg(
                     Arg::new("ADDRESS")
                         .help("The MAVLink connection address")
@@ -64,6 +72,12 @@ fn main() {
                         .help("Exclude messages from specified component IDs")
                         .num_args(1..)
                         .value_parser(clap::value_parser!(u8)),
+                )
+                .arg(
+                    Arg::new("output-file")
+                        .short('o')
+                        .long("output-file")
+                        .value_parser(clap::value_parser!(String)),
                 ),
         )
         .get_matches();
@@ -71,45 +85,74 @@ fn main() {
     if let Some(matches) = matches.subcommand_matches("listen") {
         let address = matches.get_one::<String>("ADDRESS").unwrap().to_string();
         let time = matches.get_one::<u64>("time").copied();
-
-        // Get optional heartbeat system ID
         let heartbeat_id = matches.get_one::<u8>("heartbeat-id").copied();
-
-        // Get include and exclude system IDs
         let include_system_ids = matches
             .get_many::<u8>("include-system-id")
             .map(|values| values.cloned().collect())
             .unwrap_or_else(Vec::new);
-
         let exclude_system_ids = matches
             .get_many::<u8>("exclude-system-id")
             .map(|values| values.cloned().collect())
             .unwrap_or_else(Vec::new);
-
-        // Get include and exclude component IDs
         let include_component_ids = matches
             .get_many::<u8>("include-component-id")
             .map(|values| values.cloned().collect())
             .unwrap_or_else(Vec::new);
-
         let exclude_component_ids = matches
             .get_many::<u8>("exclude-component-id")
             .map(|values| values.cloned().collect())
             .unwrap_or_else(Vec::new);
+        let output_file = matches.get_one::<String>("output-file").cloned();
 
-        let duration =  time.map(|t|Duration::new(t, 0));
-    
+        let duration = time.map(Duration::from_secs);
+
+        let connection = mavlink::connect::<MavMessage>(&address)
+            .expect(&format!("Couldn't open MAVLink connection at {}", address));
+        let connection = Arc::new(Mutex::new(connection));
+
+        if let Some(heartbeat_id) = heartbeat_id {
+            start_heartbeat_loop(connection.clone(), heartbeat_id);
+        }
 
         let listener = MavlinkListener::new(
-            address,
             duration,
-            heartbeat_id,
             include_system_ids,
             exclude_system_ids,
             include_component_ids,
             exclude_component_ids,
+            output_file,
         );
-
-        listener.listen();
+        listener.listen(connection);
     }
+}
+
+fn start_heartbeat_loop(
+    connection: Arc<Mutex<Box<dyn MavConnection<MavMessage> + Send + Sync>>>,
+    heartbeat_id: u8,
+) {
+    let heartbeat_interval = Duration::from_millis(500);
+    thread::spawn(move || loop {
+        let heartbeat = MavMessage::HEARTBEAT(mavlink::common::HEARTBEAT_DATA {
+            custom_mode: 0,
+            mavtype: MavType::MAV_TYPE_GENERIC,
+            autopilot: MavAutopilot::MAV_AUTOPILOT_INVALID,
+            base_mode: MavModeFlag::empty(),
+            system_status: MavState::MAV_STATE_ACTIVE,
+            mavlink_version: 3,
+        });
+
+        let header = MavHeader {
+            system_id: heartbeat_id,
+            component_id: 1,
+            sequence: 0,
+        };
+
+        let conn = connection.lock().unwrap();
+        if let Err(e) = conn.send(&header, &heartbeat) {
+            eprintln!("Failed to send heartbeat: {}", e);
+        }
+        drop(conn);
+        
+        thread::sleep(heartbeat_interval);
+    });
 }
