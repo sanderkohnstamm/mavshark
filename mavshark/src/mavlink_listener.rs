@@ -1,19 +1,13 @@
-use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    execute,
-    terminal::{Clear, ClearType},
-};
 use mavlink::{common::MavMessage, MavConnection};
 use serde_json::json;
-use std::io::{stdout, Write};
+use std::io::Write;
 use std::{
-    collections::HashMap,
     fs::File,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
-use crate::rolling_window::RollingWindow;
+use crate::mavlink_monitor::MavlinkMonitor;
 
 pub struct MavlinkListener {
     duration: Option<Duration>,
@@ -23,9 +17,8 @@ pub struct MavlinkListener {
     exclude_component_ids: Vec<u8>,
     output_file: Option<String>,
     output_file_binary: Option<String>,
-    monitor_clear_threshold: Duration,
-
     enable_print: bool,
+    monitor: Arc<MavlinkMonitor>,
 }
 
 impl MavlinkListener {
@@ -47,8 +40,8 @@ impl MavlinkListener {
             exclude_component_ids,
             output_file,
             output_file_binary,
-            monitor_clear_threshold: Duration::from_secs(2),
             enable_print,
+            monitor: Arc::new(MavlinkMonitor::new()),
         }
     }
 
@@ -66,13 +59,9 @@ impl MavlinkListener {
             .as_ref()
             .map(|filename| File::create(filename).expect("Failed to create binary output file"));
 
-        let mut message_counts: HashMap<(u8, u8, String), RollingWindow> = HashMap::new();
-        let monitor_interval = Duration::from_millis(200);
-        let hz_window_size = 10;
-        let mut last_monitor_update = Instant::now();
-
-        let mut stdout = stdout();
-        execute!(stdout, Hide).unwrap(); // Hide cursor for better display
+        if !self.enable_print {
+            self.monitor.start();
+        }
 
         loop {
             if let Some(duration) = self.duration {
@@ -93,6 +82,10 @@ impl MavlinkListener {
 
                     let message_json =
                         serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
+                    let message_type = serde_json::from_str::<serde_json::Value>(&message_json)
+                        .ok()
+                        .and_then(|msg| msg.get("type").and_then(|t| t.as_str()).map(String::from))
+                        .unwrap_or_else(|| "UNKNOWN".to_string());
 
                     let time_message = json!({ "time_s": time_diff.as_secs_f64() }).to_string();
                     let log_message = json!({
@@ -102,33 +95,16 @@ impl MavlinkListener {
                     })
                     .to_string();
 
-                    if !self.enable_print {
-                        let message_json =
-                            serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
-                        let message_type = serde_json::from_str::<serde_json::Value>(&message_json)
-                            .ok()
-                            .and_then(|msg| {
-                                msg.get("type").and_then(|t| t.as_str()).map(String::from)
-                            })
-                            .unwrap_or_else(|| "UNKNOWN".to_string());
-                        let key = (header.system_id, header.component_id, message_type);
-
-                        message_counts
-                            .entry(key.clone())
-                            .or_insert_with(|| RollingWindow::new(hz_window_size))
-                            .add(current_timestamp);
-
-                        if last_monitor_update.elapsed() > monitor_interval {
-                            self.display_monitor(
-                                &mut stdout,
-                                &mut message_counts,
-                                current_timestamp,
-                            );
-                            last_monitor_update = Instant::now();
-                        }
-                    } else {
+                    if self.enable_print {
                         println!("{}", time_message);
                         println!("{}", log_message);
+                    } else {
+                        self.monitor.update(
+                            header.system_id,
+                            header.component_id,
+                            message_type,
+                            current_timestamp,
+                        );
                     }
 
                     self.write_logs(
@@ -146,34 +122,6 @@ impl MavlinkListener {
                 }
             }
         }
-
-        execute!(stdout, Show).unwrap(); // Show cursor again when done
-    }
-
-    fn display_monitor(
-        &self,
-        stdout: &mut std::io::Stdout,
-        message_counts: &mut HashMap<(u8, u8, String), RollingWindow>,
-        current_timestamp: Instant,
-    ) {
-        execute!(stdout, MoveTo(0, 0), Clear(ClearType::FromCursorDown)).unwrap();
-        message_counts.retain(|_, window| !window.should_be_cleared(self.monitor_clear_threshold));
-
-        println!(
-            "{:<10} {:<15} {:<35} {:<10}",
-            "System ID", "Component ID", "Message Type", "Hz"
-        );
-        println!("{}", "-".repeat(75));
-
-        for ((system_id, component_id, msg_type), window) in message_counts.iter() {
-            let hz = window.calculate_hz(current_timestamp);
-            println!(
-                "{:<10} {:<15} {:<35} {:<10.2}",
-                system_id, component_id, msg_type, hz
-            );
-        }
-
-        stdout.flush().unwrap();
     }
 
     fn write_logs(
