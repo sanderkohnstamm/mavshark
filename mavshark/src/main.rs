@@ -1,4 +1,5 @@
 mod mavlink_listener;
+mod mavlink_sender;
 
 use clap::{Arg, Command};
 use mavlink::{
@@ -6,6 +7,7 @@ use mavlink::{
     MavConnection, MavHeader,
 };
 use mavlink_listener::MavlinkListener;
+use mavlink_sender::MavlinkSender;
 use std::{
     sync::{Arc, Mutex},
     thread,
@@ -16,10 +18,10 @@ fn main() {
     let matches = Command::new("mavshark")
         .version("1.0")
         .author("Sander Kohnstamm sanderkohnstamm@gmail.com")
-        .about("MAVLink Listener CLI")
+        .about("MAVLink recorder and replayer CLI")
         .subcommand(
-            Command::new("listen")
-                .about("Listens to MAVLink messages")
+            Command::new("record")
+                .about("Records MAVLink messages")
                 .arg(
                     Arg::new("ADDRESS")
                         .help("The MAVLink connection address")
@@ -35,19 +37,27 @@ fn main() {
                         .value_parser(clap::value_parser!(u64)),
                 )
                 .arg(
+                    Arg::new("output-file")
+                        .short('o')
+                        .value_name("OUTPUT_FILE")
+                        .help("Output file for message logging. This allows for the replay functionality")
+                        .long("output-file")
+                        .value_parser(clap::value_parser!(String)),
+                )
+                .arg(
+                    Arg::new("output-file-binary")
+                        .value_name("OUTPUT_FILE_BINARY")
+                        .help("Output file for binary message logging. Allows for the connection to be made on the file later.")
+                        .long("output-file-binary")
+                        .value_parser(clap::value_parser!(String)),
+                )
+                .arg(
                     Arg::new("heartbeat-id")
+                        .short('i')
                         .long("heartbeat-id")
                         .value_name("HEARTBEAT_ID")
                         .help("Optional: System ID from which to send a heartbeat. If omitted, no heartbeat is sent")
                         .value_parser(clap::value_parser!(u8)), 
-                )
-                .arg(
-                    Arg::new("output-file")
-                        .short('o')
-                        .value_name("OUTPUT_FILE")
-                        .help("Output file for binary message logging. Allows for the connection to be made on the file later.")
-                        .long("output-file")
-                        .value_parser(clap::value_parser!(String)),
                 )
                 .arg(
                     Arg::new("include-system-id")
@@ -82,9 +92,25 @@ fn main() {
                         .value_parser(clap::value_parser!(u8)),
                 )
         )
+        .subcommand(
+            Command::new("replay")
+                .about("Replays MAVLink messages from a file")
+                .arg(
+                    Arg::new("ADDRESS")
+                        .help("The MAVLink connection address")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(
+                    Arg::new("INPUT_FILE")
+                        .help("Path to the input file containing MAVLink messages")
+                        .required(true)
+                        .index(2),
+                ),
+        )
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("listen") {
+    if let Some(matches) = matches.subcommand_matches("record") {
         let address = matches.get_one::<String>("ADDRESS").unwrap().to_string();
         let time = matches.get_one::<u64>("time").copied();
         let heartbeat_id = matches.get_one::<u8>("heartbeat-id").copied();
@@ -105,6 +131,7 @@ fn main() {
             .map(|values| values.cloned().collect())
             .unwrap_or_else(Vec::new);
         let output_file = matches.get_one::<String>("output-file").cloned();
+        let output_file_binary = matches.get_one::<String>("output-file-binary").cloned();
 
         let duration = time.map(Duration::from_secs);
 
@@ -123,8 +150,19 @@ fn main() {
             include_component_ids,
             exclude_component_ids,
             output_file,
+            output_file_binary,
         );
-        listener.listen(connection);
+        listener.record(connection);
+    }
+
+    if let Some(matches) = matches.subcommand_matches("replay") {
+        let address = matches.get_one::<String>("ADDRESS").unwrap().to_string();
+        let input_file = matches.get_one::<String>("INPUT_FILE").unwrap();
+        let connection = mavlink::connect::<MavMessage>(&address)
+            .expect(&format!("Couldn't open MAVLink connection at {}", address));
+        let connection = Arc::new(Mutex::new(connection));
+
+        MavlinkSender::replay(connection, input_file);
     }
 }
 
