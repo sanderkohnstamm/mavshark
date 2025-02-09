@@ -4,7 +4,7 @@ _A lightweight CLI tool for listening to MAVLink messages over various connectio
 
 ## **Installation**
 
-### **1. Install via Cargo **
+### **1. Install via Cargo**
 
 ```sh
 cargo install --path .
@@ -18,7 +18,7 @@ cargo install mavshark
 
 ## **Usage**
 
-### **Basic Command**
+### **Basic Commands**
 
 ```sh
 mavshark listen <ADDRESS> [OPTIONS]
