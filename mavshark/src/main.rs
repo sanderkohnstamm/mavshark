@@ -1,5 +1,7 @@
 mod mavlink_listener;
 mod mavlink_sender;
+mod rolling_window;
+
 
 use clap::{Arg, Command};
 use mavlink::{
@@ -91,10 +93,17 @@ fn main() {
                         .num_args(1..)
                         .value_parser(clap::value_parser!(u8)),
                 )
+                .arg(
+                    Arg::new("print")
+                        .short('p')
+                        .long("print")
+                        .help("Print messages instead of showing monitor")
+                        .action(clap::ArgAction::SetTrue),
+                ),
         )
         .subcommand(
             Command::new("replay")
-                .about("Replays MAVLink messages from a file")
+                .about("UNDER CONSTRUCTION | Replays MAVLink messages from a file")
                 .arg(
                     Arg::new("ADDRESS")
                         .help("The MAVLink connection address")
@@ -132,6 +141,7 @@ fn main() {
             .unwrap_or_else(Vec::new);
         let output_file = matches.get_one::<String>("output-file").cloned();
         let output_file_binary = matches.get_one::<String>("output-file-binary").cloned();
+        let enable_print = matches.get_flag("print");
 
         let duration = time.map(Duration::from_secs);
 
@@ -151,6 +161,7 @@ fn main() {
             exclude_component_ids,
             output_file,
             output_file_binary,
+            enable_print,
         );
         listener.record(connection);
     }

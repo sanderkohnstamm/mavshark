@@ -42,7 +42,7 @@ impl MavlinkSender {
                 .expect("Invalid message format");
 
             // Replace null values with 0.0 in the JSON string
-            let cleaned_message_str = message_str.replace(":null", ":0.0");
+            let cleaned_message_str = message_str.replace("null", "0.0");
 
             let mav_message: MavMessage = serde_json::from_str(&cleaned_message_str)
                 .expect("Failed to parse MAVLink message");
@@ -54,9 +54,9 @@ impl MavlinkSender {
             };
 
             let conn = connection.lock().unwrap();
+            println!("Sending: {:?}, {}", header, message_str);
             conn.send(&header, &mav_message)
                 .expect("Failed to send MAVLink message");
-            println!("Sent: {:?}, {}", header, message_str);
         }
 
         println!("Finished sending MAVLink messages.");
