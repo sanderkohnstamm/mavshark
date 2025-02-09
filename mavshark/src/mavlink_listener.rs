@@ -1,7 +1,7 @@
 use mavlink::{common::MavMessage, MavConnection};
 use std::{
     fs::File,
-    io::{BufWriter, Write},
+    io::Write,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -37,10 +37,11 @@ impl MavlinkListener {
     pub fn listen(&self, connection: Arc<Mutex<Box<dyn MavConnection<MavMessage> + Send + Sync>>>) {
         println!("Listening for MAVLink messages...");
         let start_time = Instant::now();
-        let mut has_printed_err = false;
-        let mut output_writer = self.output_file.as_ref().map(|filename| {
-            BufWriter::new(File::create(filename).expect("Failed to create output file"))
-        });
+
+        let mut output_writer = self
+            .output_file
+            .as_ref()
+            .map(|filename| File::create(filename).expect("Failed to create output file"));
 
         loop {
             if let Some(duration) = self.duration {
@@ -79,19 +80,24 @@ impl MavlinkListener {
                     println!("{}", log_message);
 
                     if let Some(writer) = output_writer.as_mut() {
-                        let output_message = format!("{:#?}\n", message);
-                        writeln!(writer, "{}", output_message)
-                            .expect("Failed to write to output file");
+                        let mut buffer = vec![];
+                        mavlink::write_versioned_msg(
+                            &mut buffer,
+                            mavlink::MavlinkVersion::V2,
+                            header,
+                            &message,
+                        )
+                        .expect("Failed to encode MAVLink message");
+
+                        writer
+                            .write_all(&buffer)
+                            .expect("Failed to write MAVLink binary");
                         writer.flush().expect("Failed to flush output file");
                     }
-
-                    has_printed_err = false;
                 }
                 Err(e) => {
-                    if !has_printed_err {
-                        eprintln!("Error receiving MAVLink message: {}", e);
-                        has_printed_err = true;
-                    }
+                    eprintln!("Error receiving MAVLink message: {}", e);
+                    break;
                 }
             }
         }

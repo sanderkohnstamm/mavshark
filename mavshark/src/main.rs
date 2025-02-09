@@ -42,6 +42,14 @@ fn main() {
                         .value_parser(clap::value_parser!(u8)), 
                 )
                 .arg(
+                    Arg::new("output-file")
+                        .short('o')
+                        .value_name("OUTPUT_FILE")
+                        .help("Output file for binary message logging. Allows for the connection to be made on the file later.")
+                        .long("output-file")
+                        .value_parser(clap::value_parser!(String)),
+                )
+                .arg(
                     Arg::new("include-system-id")
                         .long("include-system-id")
                         .value_name("INCLUDE_SYSTEM_ID")
@@ -73,12 +81,6 @@ fn main() {
                         .num_args(1..)
                         .value_parser(clap::value_parser!(u8)),
                 )
-                .arg(
-                    Arg::new("output-file")
-                        .short('o')
-                        .long("output-file")
-                        .value_parser(clap::value_parser!(String)),
-                ),
         )
         .get_matches();
 
@@ -152,7 +154,7 @@ fn start_heartbeat_loop(
             eprintln!("Failed to send heartbeat: {}", e);
         }
         drop(conn);
-        
+
         thread::sleep(heartbeat_interval);
     });
 }
