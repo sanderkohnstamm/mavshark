@@ -114,7 +114,7 @@ impl MavlinkListener {
         }
 
         let start_time = Instant::now();
-
+        let mut has_printed_err = false;
         loop {
             if let Some(duration) = self.duration {
                 if start_time.elapsed() > duration {
@@ -146,15 +146,20 @@ impl MavlinkListener {
                     }
 
                     println!(
-                        "----------------------------------------\n\
+                        "----------------------------------------\n\n\
                             System ID: {}, Component ID: {}\n\
                             {:#?}\n",
                         header.system_id, header.component_id, message
                     );
+
+                    has_printed_err = false;
                 }
                 Err(e) => {
-                    eprintln!("⚠️ Error receiving MAVLink message: {}", e);
-                    break;
+                    if !has_printed_err {
+                        eprintln!("Error receiving MAVLink message: {}", e);
+                        has_printed_err = true;
+                    }
+                    continue;
                 }
             }
         }
