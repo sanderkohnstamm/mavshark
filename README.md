@@ -29,7 +29,7 @@ mavshark help
 ```
 
 ```sh
-mavshark record --help
+mavshark replay --help
 ```
 
 ### **Example usage**
