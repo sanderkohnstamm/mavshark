@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 pub struct RollingWindow {
     timestamps: Vec<Instant>,
     max_size: usize,
+    hz: f64,
 }
 
 impl RollingWindow {
@@ -10,6 +11,7 @@ impl RollingWindow {
         RollingWindow {
             timestamps: Vec::with_capacity(max_size),
             max_size,
+            hz: 0.0,
         }
     }
 
@@ -18,19 +20,25 @@ impl RollingWindow {
             self.timestamps.remove(0);
         }
         self.timestamps.push(timestamp);
+        self.calculate_hz(timestamp);
     }
 
-    pub fn calculate_hz(&self, current_timestamp: Instant) -> f64 {
+    fn calculate_hz(&mut self, current_timestamp: Instant) {
         if self.timestamps.len() < 2 {
-            return 0.0;
+            self.hz = 0.0;
+            return;
         }
         let first = self.timestamps.first().unwrap();
         let duration = current_timestamp.duration_since(*first).as_secs_f64();
         if duration > 0.0 {
-            (self.timestamps.len() as f64 - 1.0) / duration
+            self.hz = (self.timestamps.len() as f64 - 1.0) / duration;
         } else {
-            0.0
+            self.hz = 0.0;
         }
+    }
+
+    pub fn get_hz(&self) -> f64 {
+        self.hz
     }
 
     pub fn should_be_cleared(&self, threshold: Duration) -> bool {

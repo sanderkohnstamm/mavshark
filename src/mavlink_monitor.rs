@@ -41,23 +41,24 @@ impl MavlinkMonitor {
 
             loop {
                 thread::sleep(monitor_interval);
-                let current_timestamp = Instant::now();
 
                 let mut message_counts = message_counts.lock().unwrap();
                 message_counts
                     .retain(|_, window| !window.should_be_cleared(monitor_clear_threshold));
 
                 execute!(stdout, MoveTo(0, 0), Clear(ClearType::FromCursorDown)).unwrap();
+                println!("MAVSHARK MONITOR 🦈");
+                println!("{}", "-".repeat(75));
                 println!(
-                    "{:<10} {:<15} {:<35} {:<10}",
+                    "{:<10} | {:<15} | {:<35} | {:<10}",
                     "System ID", "Component ID", "Message Type", "Hz"
                 );
                 println!("{}", "-".repeat(75));
 
                 for ((system_id, component_id, msg_type), window) in message_counts.iter() {
-                    let hz = window.calculate_hz(current_timestamp);
+                    let hz = window.get_hz();
                     println!(
-                        "{:<10} {:<15} {:<35} {:<10.2}",
+                        "{:<10} | {:<15} | {:<35} | {:<10.2}",
                         system_id, component_id, msg_type, hz
                     );
                 }
