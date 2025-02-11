@@ -1,4 +1,4 @@
-# **mavshark** 🦈
+# **MAVSHARK** 🦈
 
 _A lightweight CLI tool for recording and replaying to MAVLink messages._
 
@@ -29,7 +29,7 @@ mavshark help
 ```
 
 ```sh
-mavshark replay --help
+mavshark record --help
 ```
 
 ### **Example usage**
@@ -67,8 +67,21 @@ in the command.
 
 #### Why output to binary or .txt
 
-The mavlink connection can also be made on .bin files, all the messages are then read and parsed correctly.
-For the replay functionality we need or own json messadges with the timestamps. Use regular output file for this.
+The mavlink connection can also be made on .bin files, all the messages are then read and parsed correctly. This happens almost instantainuously, so would not make sense to attempt to replay this. 
+
+For the replay functionality, i have added the regular output functionality that also logs the timings in between. This way, whilst replaying certain sets of commands, timing can be easily managed.
+
+
+#### Which connection types
+Rust mavlink is used, which allows for the following connection types:
+
+tcpin:<addr>:<port> to create a TCP server, listening for incoming connections
+tcpout:<addr>:<port> to create a TCP client
+udpin:<addr>:<port> to create a UDP server, listening for incoming packets
+udpout:<addr>:<port> to create a UDP client
+udpbcast:<addr>:<port> to create a UDP broadcast
+serial:<port>:<baudrate> to create a serial connection
+file:<path> to extract file data
 
 ## **License**
 

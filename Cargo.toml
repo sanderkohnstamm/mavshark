@@ -1,6 +1,6 @@
 [package]
 name = "mavshark"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Sander Kohnstamm <sanderkohnstamm@gmail.com>"]
 edition = "2021"
 description = "MAVLink recorder and replayer CLI"
@@ -13,7 +13,7 @@ keywords = ["mavlink", "cli", "drone"]
 categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
-clap = "4.5.28"
+clap = { version = "4.5.29", features = ["derive"] }
 crossterm = "0.28.1"
 mavlink = { version = "0.13", features = [
     "common",
