@@ -20,10 +20,9 @@ impl RollingWindow {
             self.timestamps.remove(0);
         }
         self.timestamps.push(timestamp);
-        self.calculate_hz(timestamp);
     }
 
-    fn calculate_hz(&mut self, current_timestamp: Instant) {
+    pub fn calculate_hz(&mut self, current_timestamp: Instant) {
         if self.timestamps.len() < 2 {
             self.hz = 0.0;
             return;

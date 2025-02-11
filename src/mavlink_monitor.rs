@@ -12,7 +12,9 @@ use crossterm::{
     execute,
     terminal::{Clear, ClearType},
 };
+
 use rolling_window::RollingWindow;
+
 pub struct MavlinkMonitor {
     message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
     monitor_clear_threshold: Duration,
@@ -35,6 +37,7 @@ impl MavlinkMonitor {
         let monitor_clear_threshold = self.monitor_clear_threshold;
         let monitor_interval = self.monitor_interval;
 
+        // Thread for displaying the monitor
         thread::spawn(move || {
             let mut stdout = stdout();
             execute!(stdout, Hide).unwrap();
@@ -42,27 +45,44 @@ impl MavlinkMonitor {
             loop {
                 thread::sleep(monitor_interval);
 
-                let mut message_counts = message_counts.lock().unwrap();
-                message_counts
-                    .retain(|_, window| !window.should_be_cleared(monitor_clear_threshold));
+                let message_counts = message_counts.lock().unwrap();
 
-                execute!(stdout, MoveTo(0, 0), Clear(ClearType::FromCursorDown)).unwrap();
-                println!("MAVSHARK MONITOR 🦈");
-                println!("{}", "-".repeat(75));
-                println!(
-                    "{:<10} | {:<15} | {:<35} | {:<10}",
+                let mut output = String::new();
+                output.push_str(&format!("{}\n", "-".repeat(75)));
+                output.push_str(&format!("{:<75}\n", "MAVSHARK MONITOR 🦈"));
+                output.push_str(&format!("{}\n", "-".repeat(75)));
+                output.push_str(&format!(
+                    "{:<10} | {:<15} | {:<35} | {:<10}\n",
                     "System ID", "Component ID", "Message Type", "Hz"
-                );
-                println!("{}", "-".repeat(75));
+                ));
+                output.push_str(&format!("{}\n", "-".repeat(75)));
 
                 for ((system_id, component_id, msg_type), window) in message_counts.iter() {
                     let hz = window.get_hz();
-                    println!(
-                        "{:<10} | {:<15} | {:<35} | {:<10.2}",
+                    output.push_str(&format!(
+                        "{:<10} | {:<15} | {:<35} | {:<10.2}\n",
                         system_id, component_id, msg_type, hz
-                    );
+                    ));
                 }
+
+                execute!(stdout, MoveTo(0, 0), Clear(ClearType::FromCursorDown)).unwrap();
+                print!("{}", output);
                 stdout.flush().unwrap();
+            }
+        });
+
+        // Thread for calculating Hz values and retaining windows
+        let message_counts = Arc::clone(&self.message_counts);
+        thread::spawn(move || loop {
+            thread::sleep(monitor_interval);
+
+            let mut message_counts = message_counts.lock().unwrap();
+            let current_timestamp = Instant::now();
+
+            message_counts.retain(|_, window| !window.should_be_cleared(monitor_clear_threshold));
+
+            for window in message_counts.values_mut() {
+                window.calculate_hz(current_timestamp);
             }
         });
     }
