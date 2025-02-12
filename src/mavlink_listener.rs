@@ -60,7 +60,11 @@ impl MavlinkListener {
             .map(|filename| File::create(filename).expect("Failed to create binary output file"));
 
         if !self.enable_print {
-            self.monitor.start();
+            let optional_output_message = self
+                .output_file
+                .as_ref()
+                .map(|filename| format!("writing to: {}", filename));
+            self.monitor.start(optional_output_message);
         }
 
         loop {

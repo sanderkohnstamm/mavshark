@@ -32,7 +32,7 @@ impl MavlinkMonitor {
         }
     }
 
-    pub fn start(&self) {
+    pub fn start(&self, optional_output: Option<String>) {
         let message_counts = Arc::clone(&self.message_counts);
         let monitor_clear_threshold = self.monitor_clear_threshold;
         let monitor_interval = self.monitor_interval;
@@ -49,7 +49,16 @@ impl MavlinkMonitor {
 
                 let mut output = String::new();
                 output.push_str(&format!("{}\n", "-".repeat(75)));
-                output.push_str(&format!("{:<75}\n", "MAVSHARK MONITOR 🦈"));
+
+                if let Some(ref output_text) = optional_output {
+                    output.push_str(&format!(
+                        "{:<37}{:>37}\n",
+                        "MAVSHARK MONITOR 🦈", output_text
+                    ));
+                } else {
+                    output.push_str(&format!("{:^75}\n", "MAVSHARK MONITOR 🦈"));
+                }
+
                 output.push_str(&format!("{}\n", "-".repeat(75)));
                 output.push_str(&format!(
                     "{:<10} | {:<15} | {:<35} | {:<10}\n",
