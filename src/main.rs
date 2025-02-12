@@ -131,7 +131,7 @@ fn main() {
             MavlinkSender::replay(connection, &input_file);
         }
         Commands::Explain => {
-            println!("{}", strip_markdown(README));
+            termimad::print_text(README);
         }
     }
 }
@@ -165,48 +165,4 @@ fn start_heartbeat_loop(
 
         thread::sleep(heartbeat_interval);
     });
-}
-
-fn strip_markdown(input: &str) -> String {
-    let mut output = String::new();
-    let mut in_code_block = false;
-
-    for line in input.lines() {
-        if line.starts_with("```") {
-            in_code_block = !in_code_block;
-            if in_code_block {
-                output.push_str("\x1b[1m--- --- --- ---\x1b[0m\n");
-            } else {
-                output.push_str("\x1b[1m--- --- --- ---\x1b[0m\n");
-            }
-            continue;
-        }
-
-        if in_code_block {
-            output.push_str(line);
-            output.push('\n');
-            continue;
-        }
-
-        let stripped_line = if line.contains('#') {
-            format!("\x1b[1m{}\x1b[0m", line)
-        } else {
-            line.to_string()
-        };
-        let stripped_line = stripped_line
-            .replace("######", "")
-            .replace("#####", "")
-            .replace("####", "")
-            .replace("###", "")
-            .replace("##", "")
-            .replace("#", "")
-            .replace("**", "")
-            .replace("_", "")
-            .replace("`", "");
-
-        output.push_str(&stripped_line);
-        output.push('\n');
-    }
-
-    output
 }
