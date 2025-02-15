@@ -122,7 +122,6 @@ impl MavlinkListener {
                 }
                 Err(e) => {
                     eprintln!("Error receiving MAVLink message: {}", e);
-                    break;
                 }
             }
         }
