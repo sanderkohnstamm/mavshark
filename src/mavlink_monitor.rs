@@ -64,7 +64,7 @@ impl MavlinkMonitor {
         &self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<(), io::Error> {
-        let mut input_address = String::new();
+        let mut input_address = "udpin:0.0.0.0:14550".to_string();
         let mut input_output_file = String::new();
         let mut active_input = 1; // 1 for input_address, 2 for input_output_file
         let mut widget_frequencies =
@@ -78,7 +78,7 @@ impl MavlinkMonitor {
                     .direction(Direction::Vertical)
                     .constraints(
                         [
-                            Constraint::Percentage(10),
+                            Constraint::Length(3), // Adjusted to ensure one line height
                             Constraint::Percentage(75),
                             Constraint::Percentage(15),
                         ]
@@ -95,24 +95,21 @@ impl MavlinkMonitor {
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(chunks[1]);
 
-                let input_address_paragraph =
-                    Paragraph::new(input_address.as_ref())
-                        .block(Block::default().borders(Borders::ALL).title(
-                            "Enter Connection Address (e.g. udpin:0.0.0.0:14550) or q to quit",
-                        ))
-                        .style(Style::default().fg(if active_input == 1 {
-                            Color::Yellow
-                        } else {
-                            Color::White
-                        }));
-                f.render_widget(input_address_paragraph, top_chunks[0]);
-
-                let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
+                let input_address_paragraph = Paragraph::new(input_address.as_ref())
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title("Enter Optional Output File"),
+                            .title("Connection Address. Press Enter to connect, q to quit"),
                     )
+                    .style(Style::default().fg(if active_input == 1 {
+                        Color::Yellow
+                    } else {
+                        Color::White
+                    }));
+                f.render_widget(input_address_paragraph, top_chunks[0]);
+
+                let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Output file"))
                     .style(Style::default().fg(if active_input == 2 {
                         Color::Yellow
                     } else {
