@@ -94,7 +94,7 @@ impl Messages {
         self.state.select(Some(i));
     }
 
-    pub fn to_tui_table(&self) -> Table {
+    pub fn to_tui_table(&self, active: bool) -> Table {
         let selected_style = Style::default().add_modifier(Modifier::REVERSED);
         let header_cells = ["System ID", "Component ID", "Message Type", "Hz"]
             .iter()
@@ -122,7 +122,12 @@ impl Messages {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Message Counts"),
+                    .title("Message Counts")
+                    .border_style(Style::default().fg(if active {
+                        Color::LightBlue
+                    } else {
+                        Color::Gray
+                    })),
             )
             .highlight_style(selected_style)
             .widths(&[

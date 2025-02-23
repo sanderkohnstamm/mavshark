@@ -99,80 +99,103 @@ impl App {
                             .borders(Borders::ALL)
                             .title("Connection Address"),
                     )
-                    .style(Style::default().fg(if active_input == 1 {
-                        if validate_connection_address_input(&input_address) {
-                            Color::Green
-                        } else {
-                            Color::Red
-                        }
-                    } else {
-                        Color::White
-                    }));
-                f.render_widget(input_address_paragraph, top_chunks[0]);
-
-                let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
-                    .block(Block::default().borders(Borders::ALL).title("Output file"))
-                    .style(Style::default().fg(if active_input == 2 {
-                        if input_output_file.is_empty() {
-                            Color::Blue
-                        } else if validate_output_file_input(&input_output_file) {
-                            Color::Green
-                        } else {
-                            Color::Red
-                        }
-                    } else {
-                        Color::White
-                    }));
-                f.render_widget(input_output_file_paragraph, top_chunks[1]);
-
-                let input_heartbeat_id_paragraph = Paragraph::new(input_heartbeat_id.as_ref())
-                    .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
-                    .style(Style::default().fg(if active_input == 3 {
-                        if input_heartbeat_id.is_empty() {
-                            Color::Blue
-                        } else if validate_u8_input(&input_heartbeat_id) {
-                            Color::Green
-                        } else {
-                            Color::Red
-                        }
-                    } else {
-                        Color::White
-                    }));
-                f.render_widget(input_heartbeat_id_paragraph, top_chunks[2]);
-
-                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.as_ref())
-                    .block(Block::default().borders(Borders::ALL).title("Sys ID"))
-                    .style(Style::default().fg(if active_input == 4 {
-                        if input_system_id_filter.is_empty() {
-                            Color::Blue
-                        } else if validate_u8_input(&input_system_id_filter) {
-                            Color::Green
-                        } else {
-                            Color::Red
-                        }
-                    } else {
-                        Color::White
-                    }));
-                f.render_widget(include_system_id_paragraph, top_chunks[3]);
-
-                let include_component_id_paragraph =
-                    Paragraph::new(input_component_id_filter.as_ref())
-                        .block(Block::default().borders(Borders::ALL).title("Comp ID"))
-                        .style(Style::default().fg(if active_input == 5 {
-                            if input_component_id_filter.is_empty() {
-                                Color::Blue
-                            } else if validate_u8_input(&input_component_id_filter) {
+                    .style(
+                        Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                            Color::Gray
+                        } else if active_input == 1 {
+                            if validate_connection_address_input(&input_address) {
                                 Color::Green
                             } else {
                                 Color::Red
                             }
                         } else {
                             Color::White
-                        }));
+                        }),
+                    );
+                f.render_widget(input_address_paragraph, top_chunks[0]);
+
+                let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Output file"))
+                    .style(
+                        Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                            Color::Gray
+                        } else if active_input == 2 {
+                            if input_output_file.is_empty() {
+                                Color::Blue
+                            } else if validate_output_file_input(&input_output_file) {
+                                Color::Green
+                            } else {
+                                Color::Red
+                            }
+                        } else {
+                            Color::White
+                        }),
+                    );
+                f.render_widget(input_output_file_paragraph, top_chunks[1]);
+
+                let input_heartbeat_id_paragraph = Paragraph::new(input_heartbeat_id.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
+                    .style(
+                        Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                            Color::Gray
+                        } else if active_input == 3 {
+                            if input_heartbeat_id.is_empty() {
+                                Color::Blue
+                            } else if validate_u8_input(&input_heartbeat_id) {
+                                Color::Green
+                            } else {
+                                Color::Red
+                            }
+                        } else {
+                            Color::White
+                        }),
+                    );
+                f.render_widget(input_heartbeat_id_paragraph, top_chunks[2]);
+
+                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Sys ID"))
+                    .style(
+                        Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                            Color::Gray
+                        } else if active_input == 4 {
+                            if input_system_id_filter.is_empty() {
+                                Color::Blue
+                            } else if validate_u8_input(&input_system_id_filter) {
+                                Color::Green
+                            } else {
+                                Color::Red
+                            }
+                        } else {
+                            Color::White
+                        }),
+                    );
+                f.render_widget(include_system_id_paragraph, top_chunks[3]);
+
+                let include_component_id_paragraph =
+                    Paragraph::new(input_component_id_filter.as_ref())
+                        .block(Block::default().borders(Borders::ALL).title("Comp ID"))
+                        .style(Style::default().fg(
+                            if self.current_listener_stop_signal.is_some() {
+                                Color::Gray
+                            } else if active_input == 5 {
+                                if input_component_id_filter.is_empty() {
+                                    Color::Blue
+                                } else if validate_u8_input(&input_component_id_filter) {
+                                    Color::Green
+                                } else {
+                                    Color::Red
+                                }
+                            } else {
+                                Color::White
+                            },
+                        ));
                 f.render_widget(include_component_id_paragraph, top_chunks[4]);
 
-                let table = self.messages.to_tui_table();
+                let table = self
+                    .messages
+                    .to_tui_table(self.current_listener_stop_signal.is_some());
                 let mut state = self.messages.state();
+
                 f.render_stateful_widget(table, middle_chunks[0], &mut state);
 
                 let selected_message_json = self
@@ -185,7 +208,13 @@ impl App {
                             .borders(Borders::ALL)
                             .title("Selected Message"),
                     )
-                    .style(Style::default().fg(Color::White));
+                    .style(
+                        Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                            Color::LightBlue
+                        } else {
+                            Color::Gray
+                        }),
+                    );
                 f.render_widget(selected_message_paragraph, middle_chunks[1]);
 
                 let logs_table = self.logs.to_tui_table();
@@ -200,9 +229,9 @@ impl App {
                     Esc: Stop Listener\n\
                     Allowed connection address formats:udpin, udpout, tcpin, tcpout\n\
                     Allowed output file formats: *.txt\n\
-                    Heartbeat ID, System ID, Component ID: 0-255\n\
-                    Heartbeat ID is used to send a heartbeat message to the connection address\n\
-                    System ID and Component ID are used to filter messages by their source\n\
+                    Heartbeat ID: send heartbeat with id (0-255)\n\
+                    Sys ID: filter messages by system id (0-255)\n\
+                    Comp ID: filter messages by component id (0-255)
                     ",
                 )
                 .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
@@ -212,85 +241,95 @@ impl App {
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Char(c) => match active_input {
-                            1 => input_address.push(c),
-                            2 => input_output_file.push(c),
-                            3 => input_heartbeat_id.push(c),
-                            4 => input_system_id_filter.push(c),
-                            5 => input_component_id_filter.push(c),
-                            _ => {}
-                        },
-                        KeyCode::Backspace => match active_input {
-                            1 => {
-                                input_address.pop();
-                            }
-                            2 => {
-                                input_output_file.pop();
-                            }
-                            3 => {
-                                input_heartbeat_id.pop();
-                            }
-                            4 => {
-                                input_system_id_filter.pop();
-                            }
-                            5 => {
-                                input_component_id_filter.pop();
-                            }
-                            _ => {}
-                        },
-                        KeyCode::Enter => {
-                            let address = input_address.clone();
-                            let output_file = match input_output_file.clone() {
-                                s if s.is_empty() => {
-                                    self.logs.log_info("No output file specified");
-                                    None
+                    if self.current_listener_stop_signal.is_none() {
+                        match key.code {
+                            KeyCode::Char('q') => break,
+                            KeyCode::Char(c) => match active_input {
+                                1 => input_address.push(c),
+                                2 => input_output_file.push(c),
+                                3 => input_heartbeat_id.push(c),
+                                4 => input_system_id_filter.push(c),
+                                5 => input_component_id_filter.push(c),
+                                _ => {}
+                            },
+                            KeyCode::Backspace => match active_input {
+                                1 => {
+                                    input_address.pop();
                                 }
-                                s => Some(s),
-                            };
+                                2 => {
+                                    input_output_file.pop();
+                                }
+                                3 => {
+                                    input_heartbeat_id.pop();
+                                }
+                                4 => {
+                                    input_system_id_filter.pop();
+                                }
+                                5 => {
+                                    input_component_id_filter.pop();
+                                }
+                                _ => {}
+                            },
+                            KeyCode::Enter => {
+                                let address = input_address.clone();
+                                let output_file = match input_output_file.clone() {
+                                    s if s.is_empty() => {
+                                        self.logs.log_info("No output file specified");
+                                        None
+                                    }
+                                    s => Some(s),
+                                };
 
-                            let heartbeat_id = match input_heartbeat_id.parse::<u8>() {
-                                Ok(id) => Some(id),
-                                Err(_) => {
-                                    self.logs.log_info("Invalid or no heartbeat ID");
-                                    None
-                                }
-                            };
-                            let system_id_filter = match input_system_id_filter.parse::<u8>() {
-                                Ok(id) => Some(id),
-                                Err(_) => {
-                                    self.logs.log_info("Invalid or no system ID filter");
-                                    None
-                                }
-                            };
-                            let component_id_filter = match input_component_id_filter.parse::<u8>()
-                            {
-                                Ok(id) => Some(id),
-                                Err(_) => {
-                                    self.logs.log_info("Invalid or no component ID filter");
-                                    None
-                                }
-                            };
-                            self.start_listener(
-                                address,
-                                output_file,
-                                heartbeat_id,
-                                system_id_filter,
-                                component_id_filter,
-                            );
+                                let heartbeat_id = match input_heartbeat_id.parse::<u8>() {
+                                    Ok(id) => Some(id),
+                                    Err(_) => {
+                                        self.logs.log_info("Invalid or no heartbeat ID");
+                                        None
+                                    }
+                                };
+                                let system_id_filter = match input_system_id_filter.parse::<u8>() {
+                                    Ok(id) => Some(id),
+                                    Err(_) => {
+                                        self.logs.log_info("Invalid or no system ID filter");
+                                        None
+                                    }
+                                };
+                                let component_id_filter =
+                                    match input_component_id_filter.parse::<u8>() {
+                                        Ok(id) => Some(id),
+                                        Err(_) => {
+                                            self.logs.log_info("Invalid or no component ID filter");
+                                            None
+                                        }
+                                    };
+                                self.start_listener(
+                                    address,
+                                    output_file,
+                                    heartbeat_id,
+                                    system_id_filter,
+                                    component_id_filter,
+                                );
+                            }
+                            KeyCode::Tab => {
+                                active_input = if active_input == 5 {
+                                    1
+                                } else {
+                                    active_input + 1
+                                };
+                            }
+                            KeyCode::Down => self.messages.select_down(),
+                            KeyCode::Up => self.messages.select_up(),
+                            KeyCode::Esc => self.stop_if_listener_running(),
+                            _ => {}
                         }
-                        KeyCode::Tab => {
-                            active_input = if active_input == 5 {
-                                1
-                            } else {
-                                active_input + 1
-                            };
+                    } else {
+                        match key.code {
+                            KeyCode::Char('q') => break,
+                            KeyCode::Down => self.messages.select_down(),
+                            KeyCode::Up => self.messages.select_up(),
+                            KeyCode::Esc => self.stop_if_listener_running(),
+                            _ => {}
                         }
-                        KeyCode::Down => self.messages.select_down(),
-                        KeyCode::Up => self.messages.select_up(),
-                        KeyCode::Esc => self.stop_if_listener_running(),
-                        _ => {}
                     }
                 }
             }
