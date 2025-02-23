@@ -9,6 +9,7 @@ use logs::Logs;
 use mavlink::common::MavMessage;
 use messages::Messages;
 use std::io;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -29,6 +30,7 @@ pub enum LogLevel {
 pub struct App {
     messages: Messages,
     logs: Logs,
+    current_listener_stop_signal: Option<Arc<AtomicBool>>,
 }
 
 impl App {
@@ -36,7 +38,11 @@ impl App {
         let messages = Messages::new();
         let logs = Logs::new();
 
-        App { messages, logs }
+        App {
+            messages,
+            logs,
+            current_listener_stop_signal: None,
+        }
     }
 
     pub fn run(
@@ -78,11 +84,15 @@ impl App {
                         .as_ref(),
                     )
                     .split(chunks[0]);
-
                 let middle_chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(chunks[1]);
+                let bottom_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+                    .split(chunks[2]);
+
                 let input_address_paragraph = Paragraph::new(input_address.as_ref())
                     .block(
                         Block::default()
@@ -145,20 +155,21 @@ impl App {
                     }));
                 f.render_widget(include_system_id_paragraph, top_chunks[3]);
 
-                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.as_ref())
-                    .block(Block::default().borders(Borders::ALL).title("Comp ID"))
-                    .style(Style::default().fg(if active_input == 4 {
-                        if input_system_id_filter.is_empty() {
-                            Color::Blue
-                        } else if validate_u8_input(&input_system_id_filter) {
-                            Color::Green
+                let include_component_id_paragraph =
+                    Paragraph::new(input_component_id_filter.as_ref())
+                        .block(Block::default().borders(Borders::ALL).title("Comp ID"))
+                        .style(Style::default().fg(if active_input == 5 {
+                            if input_component_id_filter.is_empty() {
+                                Color::Blue
+                            } else if validate_u8_input(&input_component_id_filter) {
+                                Color::Green
+                            } else {
+                                Color::Red
+                            }
                         } else {
-                            Color::Red
-                        }
-                    } else {
-                        Color::White
-                    }));
-                f.render_widget(include_system_id_paragraph, top_chunks[4]);
+                            Color::White
+                        }));
+                f.render_widget(include_component_id_paragraph, top_chunks[4]);
 
                 let table = self.messages.to_tui_table();
                 let mut state = self.messages.state();
@@ -179,7 +190,24 @@ impl App {
 
                 let logs_table = self.logs.to_tui_table();
                 let mut logs_state = TableState::default();
-                f.render_stateful_widget(logs_table, chunks[2], &mut logs_state);
+                f.render_stateful_widget(logs_table, bottom_chunks[0], &mut logs_state);
+
+                let cheatsheet = Paragraph::new(
+                    "q: Quit\n\
+                    Enter: Start Listener\n\
+                    Tab: Switch Input\n\
+                    Up/Down: Navigate Messages\n\
+                    Esc: Stop Listener\n\
+                    Allowed connection address formats:udpin, udpout, tcpin, tcpout\n\
+                    Allowed output file formats: *.txt\n\
+                    Heartbeat ID, System ID, Component ID: 0-255\n\
+                    Heartbeat ID is used to send a heartbeat message to the connection address\n\
+                    System ID and Component ID are used to filter messages by their source\n\
+                    ",
+                )
+                .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
+                .style(Style::default().fg(Color::White));
+                f.render_widget(cheatsheet, bottom_chunks[1]);
             })?;
 
             if event::poll(Duration::from_millis(100))? {
@@ -253,7 +281,7 @@ impl App {
                             );
                         }
                         KeyCode::Tab => {
-                            active_input = if active_input == 4 {
+                            active_input = if active_input == 5 {
                                 1
                             } else {
                                 active_input + 1
@@ -261,6 +289,7 @@ impl App {
                         }
                         KeyCode::Down => self.messages.select_down(),
                         KeyCode::Up => self.messages.select_up(),
+                        KeyCode::Esc => self.stop_if_listener_running(),
                         _ => {}
                     }
                 }
@@ -270,14 +299,28 @@ impl App {
         Ok(())
     }
 
+    fn stop_if_listener_running(&mut self) {
+        if let Some(stop_signal) = self.current_listener_stop_signal.clone() {
+            self.logs.log_info("Stopping listener");
+            stop_signal.store(true, std::sync::atomic::Ordering::Relaxed);
+            // small sleep to allow listener to stop
+            thread::sleep(Duration::from_millis(100));
+            self.logs.log_info("Clearing messages");
+            self.messages.clear();
+            self.current_listener_stop_signal = None;
+        }
+    }
+
     fn start_listener(
-        &self,
+        &mut self,
         address: String,
         output_file: Option<String>,
         heartbeat_id: Option<u8>,
         system_id_filter: Option<u8>,
         component_id_filter: Option<u8>,
     ) {
+        self.stop_if_listener_running();
+
         let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
         {
             Ok(Ok(connection)) => {
@@ -298,7 +341,6 @@ impl App {
         };
 
         let connection = Arc::new(Mutex::new(connection));
-
         let listener = Listener::new(
             connection.clone(),
             output_file.clone(),
@@ -308,7 +350,8 @@ impl App {
             system_id_filter,
             component_id_filter,
         );
-
+        let stop_signal = listener.get_stop_signal();
+        self.current_listener_stop_signal = Some(stop_signal.clone());
         thread::spawn(move || {
             listener.listen();
         });

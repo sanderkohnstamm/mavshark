@@ -4,14 +4,14 @@ use mavlink::{
 };
 
 use serde_json::json;
-use std::io::Write;
-use std::sync::mpsc::Sender;
+use std::sync::{atomic::Ordering, mpsc::Sender};
 use std::thread;
 use std::{
     fs::File,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use std::{io::Write, sync::atomic::AtomicBool};
 
 use crate::app::LogLevel;
 
@@ -23,6 +23,7 @@ pub struct Listener {
     heartbeat_id: Option<u8>,
     system_id_filter: Option<u8>,
     component_id_filter: Option<u8>,
+    stop_signal: Arc<AtomicBool>, // Add stop signal
 }
 
 impl Listener {
@@ -43,6 +44,7 @@ impl Listener {
             heartbeat_id,
             system_id_filter,
             component_id_filter,
+            stop_signal: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -50,6 +52,7 @@ impl Listener {
         self.log_info("Starting listener");
 
         let output_writer = self.get_output_file_writer();
+        let stop_signal = self.stop_signal.clone(); // Clone stop signal for use in the loop
 
         self.start_heartbeat_loop();
 
@@ -61,6 +64,11 @@ impl Listener {
         let mut last_timestamp = start_time;
 
         loop {
+            if stop_signal.load(Ordering::Relaxed) {
+                self.log_info("Stopping listener");
+                break;
+            }
+
             let conn = self.connection.lock().unwrap();
             match conn.recv() {
                 Ok((header, message)) => {
@@ -85,6 +93,10 @@ impl Listener {
                 }
             }
         }
+    }
+
+    pub fn get_stop_signal(&self) -> Arc<AtomicBool> {
+        self.stop_signal.clone()
     }
 
     fn get_output_file_writer(&self) -> Option<File> {

@@ -49,6 +49,11 @@ impl Messages {
         self.state.clone()
     }
 
+    pub fn clear(&mut self) {
+        self.message_counts.lock().unwrap().clear();
+        self.last_messages.lock().unwrap().clear();
+    }
+
     pub fn get_selected_message_string(&self) -> Option<String> {
         let message_counts = self.message_counts.lock().unwrap();
         let selected = self.state.selected()?;
@@ -91,14 +96,10 @@ impl Messages {
 
     pub fn to_tui_table(&self) -> Table {
         let selected_style = Style::default().add_modifier(Modifier::REVERSED);
-        let normal_style = Style::default().bg(Color::Blue);
         let header_cells = ["System ID", "Component ID", "Message Type", "Hz"]
             .iter()
-            .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
-        let header = Row::new(header_cells)
-            .style(normal_style)
-            .height(1)
-            .bottom_margin(1);
+            .map(|h| Cell::from(*h).style(Style::default().fg(Color::White)));
+        let header = Row::new(header_cells).height(1).bottom_margin(1);
 
         let message_counts = self.message_counts.lock().unwrap();
         let rows =
@@ -124,7 +125,6 @@ impl Messages {
                     .title("Message Counts"),
             )
             .highlight_style(selected_style)
-            .highlight_symbol(">")
             .widths(&[
                 Constraint::Percentage(5),
                 Constraint::Percentage(5),
