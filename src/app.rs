@@ -13,7 +13,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tui::widgets::TableState;
+use tui::symbols;
+use tui::widgets::{Axis, Chart, Dataset, TableState};
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -92,6 +93,11 @@ impl App {
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(chunks[2]);
+
+                let selected_message_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+                    .split(middle_chunks[1]);
 
                 let input_address_paragraph = Paragraph::new(input_address.as_ref())
                     .block(
@@ -215,7 +221,44 @@ impl App {
                             Color::Gray
                         }),
                     );
-                f.render_widget(selected_message_paragraph, middle_chunks[1]);
+                f.render_widget(selected_message_paragraph, selected_message_chunks[0]);
+
+                let (hz_history, current_hz) = self
+                    .messages
+                    .get_selected_message_frequency()
+                    .unwrap_or((vec![], 0.1));
+
+                // Add a graph here
+                let history_data: Vec<(f64, f64)> = hz_history
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &value)| (i as f64, value as f64))
+                    .collect();
+
+                let history_chart = Chart::new(vec![Dataset::default()
+                    .marker(symbols::Marker::Dot)
+                    .style(Style::default().fg(Color::Cyan))
+                    .data(&history_data)])
+                .block(Block::default().borders(Borders::ALL).title("History"))
+                .style(
+                    Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                        Color::LightBlue
+                    } else {
+                        Color::Gray
+                    }),
+                )
+                .x_axis(
+                    Axis::default()
+                        .title("Time")
+                        .bounds([0.0, history_data.len() as f64]),
+                )
+                .y_axis(
+                    Axis::default()
+                        .title("Frequency")
+                        .bounds([current_hz * 0.9, current_hz * 1.1]),
+                );
+
+                f.render_widget(history_chart, selected_message_chunks[1]);
 
                 let logs_table = self.logs.to_tui_table();
                 let mut logs_state = TableState::default();

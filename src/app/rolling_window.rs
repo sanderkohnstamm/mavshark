@@ -4,6 +4,7 @@ pub struct RollingWindow {
     timestamps: Vec<Instant>,
     max_duration: Duration,
     hz: f64,
+    history: Vec<f64>,
 }
 
 impl RollingWindow {
@@ -12,6 +13,7 @@ impl RollingWindow {
             timestamps: Vec::new(),
             max_duration,
             hz: 0.0,
+            history: Vec::new(),
         }
     }
 
@@ -44,6 +46,7 @@ impl RollingWindow {
         let duration = current_timestamp.duration_since(*first).as_secs_f64();
         if duration > 0.0 {
             self.hz = (self.timestamps.len() as f64 - 1.0) / duration;
+            self.history.push(self.hz);
         } else {
             self.hz = 0.0;
         }
@@ -51,5 +54,9 @@ impl RollingWindow {
 
     pub fn get_hz(&self) -> f64 {
         (self.hz * 100.0).round() / 100.0
+    }
+
+    pub fn get_history(&self) -> Vec<f64> {
+        self.history.clone()
     }
 }

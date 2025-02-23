@@ -62,6 +62,14 @@ impl Messages {
         Some(pretty_print_json(&last_message))
     }
 
+    pub fn get_selected_message_frequency(&self) -> Option<(Vec<f64>, f64)> {
+        let message_counts = self.message_counts.lock().unwrap();
+        let selected = self.state.selected()?;
+        let key = message_counts.keys().nth(selected)?;
+        let window = message_counts.get(key)?;
+        Some((window.get_history(), window.get_hz()))
+    }
+
     pub fn select_down(&mut self) {
         let i = match self.state.selected() {
             Some(i) => {
@@ -157,7 +165,7 @@ impl Messages {
                     .lock()
                     .unwrap()
                     .entry((header.system_id, header.component_id, message_type.clone()))
-                    .or_insert_with(|| RollingWindow::new(Duration::from_secs(5)))
+                    .or_insert_with(|| RollingWindow::new(Duration::from_secs(10)))
                     .add(timestamp);
 
                 last_messages.lock().unwrap().insert(

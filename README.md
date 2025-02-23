@@ -21,29 +21,9 @@ cargo install mavshark
 ### **Basic Commands**
 
 ```sh
-mavshark record <ADDRESS> [OPTIONS]
+mavshark
 ```
 
-```sh
-mavshark help
-```
-
-```sh
-mavshark record --help
-```
-
-### **Example usage**
-To record messages towards the drone. With mavrouter sniffer id 233, explaination below.
-
-```sh
-mavshark record udpin:0.0.0.0:14550 -o output.txt -i 233 --include-system-id 1
-```
-
-and then (experimental)
-
-```sh
-mavshark replay udpin:0.0.0.0:14550 output.txt
-```
 
 ## Clarifications
 
