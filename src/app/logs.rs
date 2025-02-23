@@ -1,6 +1,9 @@
 use chrono::DateTime;
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        mpsc::{self, Receiver},
+        Arc, Mutex,
+    },
     time::{Instant, SystemTime},
 };
 use tui::{
@@ -11,22 +14,49 @@ use tui::{
 };
 use tui::{text::Spans, widgets::Block};
 
-pub enum LogLevel {
-    Info,
-    Error,
-}
+use super::LogLevel;
 
-pub struct AppLogs {
+pub struct Logs {
     log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
+    logs_tx: mpsc::Sender<(Instant, LogLevel, String)>,
 }
 
-impl AppLogs {
-    pub fn new_with(log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>) -> Self {
-        AppLogs { log_messages }
+impl Logs {
+    pub fn new() -> Self {
+        let (logs_tx, logs_rx) = mpsc::channel();
+
+        let logs = Logs {
+            log_messages: Arc::new(Mutex::new(Vec::new())),
+            logs_tx,
+        };
+        logs.spawn_update_thread(logs_rx);
+        logs
     }
 
-    pub fn get_errors(&self) -> Arc<Mutex<Vec<(Instant, LogLevel, String)>>> {
-        Arc::clone(&self.log_messages)
+    pub fn logs_tx(&self) -> mpsc::Sender<(Instant, LogLevel, String)> {
+        self.logs_tx.clone()
+    }
+
+    fn spawn_update_thread(&self, logs_rx: Receiver<(Instant, LogLevel, String)>) {
+        let log_messages = Arc::clone(&self.log_messages);
+        std::thread::spawn(move || loop {
+            while let Ok((time, level, msg)) = logs_rx.recv() {
+                let mut errors = log_messages.lock().unwrap();
+                errors.push((time, level, msg));
+            }
+        });
+    }
+
+    pub fn log_error(&self, msg: &str) {
+        self.logs_tx
+            .send((Instant::now(), LogLevel::Error, msg.to_string()))
+            .unwrap();
+    }
+
+    pub fn log_info(&self, msg: &str) {
+        self.logs_tx
+            .send((Instant::now(), LogLevel::Info, msg.to_string()))
+            .unwrap();
     }
 
     pub fn to_tui_table(&self) -> Table {

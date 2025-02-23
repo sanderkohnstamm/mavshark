@@ -1,20 +1,19 @@
-mod app_logs;
-mod app_messages;
-mod mavlink_listener;
-mod mavlink_monitor;
-mod rolling_window;
+mod app;
 
+use app::App;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use mavlink_monitor::MavlinkMonitor;
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
 use tui::{backend::CrosstermBackend, Terminal};
 
 fn main() {
-    let monitor = Arc::new(MavlinkMonitor::new());
+    let monitor = Arc::new(Mutex::new(App::new()));
     enable_raw_mode().expect("Failed to enable raw mode");
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -23,7 +22,7 @@ fn main() {
     let mut terminal: Terminal<CrosstermBackend<io::Stdout>> =
         Terminal::new(backend).expect("Failed to create terminal");
 
-    if let Err(e) = monitor.run(&mut terminal) {
+    if let Err(e) = monitor.lock().unwrap().run(&mut terminal) {
         eprintln!("Error: {}", e);
     }
     execute!(

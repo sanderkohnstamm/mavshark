@@ -1,10 +1,14 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        mpsc::{self, Receiver},
+        Arc, Mutex,
+    },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
+use mavlink::{common::MavMessage, MavHeader};
 use serde_json::Value;
 use tui::{
     layout::Constraint,
@@ -14,38 +18,35 @@ use tui::{
 
 use super::rolling_window::RollingWindow;
 
-pub struct AppMessages {
+pub struct Messages {
     message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
     last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-    pub state: TableState,
+    message_tx: mpsc::Sender<(MavHeader, MavMessage)>,
+    state: TableState,
 }
 
-impl AppMessages {
-    pub fn new_with(
-        message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
-        last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-    ) -> AppMessages {
-        let widget_frequencies = AppMessages {
-            message_counts,
-            last_messages,
+impl Messages {
+    pub fn new() -> Messages {
+        let (message_tx, message_rx) = mpsc::channel();
+
+        let messages = Messages {
+            message_counts: Arc::new(Mutex::new(HashMap::new())),
+            last_messages: Arc::new(Mutex::new(HashMap::new())),
+            message_tx,
             state: TableState::default(),
         };
 
-        widget_frequencies.spawn_update_thread();
-        widget_frequencies
+        messages.spawn_hz_calculations();
+        messages.spawn_update_thread(message_rx);
+        messages
     }
 
-    fn spawn_update_thread(&self) {
-        let message_counts = Arc::clone(&self.message_counts);
-        thread::spawn(move || loop {
-            {
-                let mut counts = message_counts.lock().unwrap();
-                for window in counts.values_mut() {
-                    window.update();
-                }
-            }
-            thread::sleep(Duration::from_millis(100));
-        });
+    pub fn message_tx(&self) -> mpsc::Sender<(MavHeader, MavMessage)> {
+        self.message_tx.clone()
+    }
+
+    pub fn state(&self) -> TableState {
+        self.state.clone()
     }
 
     pub fn get_selected_message_string(&self) -> Option<String> {
@@ -131,6 +132,48 @@ impl AppMessages {
                 Constraint::Percentage(10),
             ]);
         table
+    }
+
+    fn spawn_update_thread(&self, message_rx: Receiver<(MavHeader, MavMessage)>) {
+        let message_counts = Arc::clone(&self.message_counts);
+        let last_messages = Arc::clone(&self.last_messages);
+        thread::spawn(move || {
+            while let Ok((header, message)) = message_rx.recv() {
+                let timestamp = Instant::now();
+
+                let message_json =
+                    serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
+                let message_type = serde_json::from_str::<serde_json::Value>(&message_json)
+                    .ok()
+                    .and_then(|msg| msg.get("type").and_then(|t| t.as_str()).map(String::from))
+                    .unwrap_or_else(|| "UNKNOWN".to_string());
+
+                message_counts
+                    .lock()
+                    .unwrap()
+                    .entry((header.system_id, header.component_id, message_type.clone()))
+                    .or_insert_with(|| RollingWindow::new(Duration::from_secs(5)))
+                    .add(timestamp);
+
+                last_messages.lock().unwrap().insert(
+                    (header.system_id, header.component_id, message_type),
+                    message_json,
+                );
+            }
+        });
+    }
+
+    fn spawn_hz_calculations(&self) {
+        let message_counts = Arc::clone(&self.message_counts);
+        thread::spawn(move || loop {
+            {
+                let mut counts = message_counts.lock().unwrap();
+                for window in counts.values_mut() {
+                    window.update();
+                }
+            }
+            thread::sleep(Duration::from_millis(100));
+        });
     }
 }
 

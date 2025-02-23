@@ -1,17 +1,17 @@
-use crate::app_messages::AppMessages;
-use crate::mavlink_listener::MavlinkListener;
-use crate::{app_logs, rolling_window};
+mod listener;
+mod logs;
+mod messages;
+mod rolling_window;
 
-use app_logs::{AppLogs, LogLevel};
 use crossterm::event::{self, Event, KeyCode};
+use listener::Listener;
+use logs::Logs;
 use mavlink::common::MavMessage;
-use rolling_window::RollingWindow;
-use std::collections::HashMap;
+use messages::Messages;
 use std::io;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::time::Instant;
 use tui::widgets::TableState;
 use tui::{
     backend::CrosstermBackend,
@@ -21,44 +21,26 @@ use tui::{
     Terminal,
 };
 
-pub struct MavlinkMonitor {
-    hz_window_size: usize,
-    message_tx: mpsc::Sender<(mavlink::MavHeader, MavMessage)>,
-    log_tx: mpsc::Sender<(Instant, LogLevel, String)>,
-    message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
-    last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-    log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
+pub enum LogLevel {
+    Info,
+    Error,
 }
 
-impl MavlinkMonitor {
+pub struct App {
+    messages: Messages,
+    logs: Logs,
+}
+
+impl App {
     pub fn new() -> Self {
-        let (message_tx, message_rx) = mpsc::channel();
-        let (log_tx, log_rx) = mpsc::channel();
-        let message_counts = Arc::new(Mutex::new(HashMap::new()));
-        let last_messages = Arc::new(Mutex::new(HashMap::new()));
-        let log_messages = Arc::new(Mutex::new(Vec::new()));
+        let messages = Messages::new();
+        let logs = Logs::new();
 
-        let monitor = MavlinkMonitor {
-            hz_window_size: 10,
-            message_tx,
-            log_tx,
-            message_counts: message_counts.clone(),
-            last_messages: last_messages.clone(),
-            log_messages: log_messages.clone(),
-        };
-
-        monitor.listen_to_channels(
-            message_counts,
-            last_messages,
-            log_messages,
-            message_rx,
-            log_rx,
-        );
-        monitor
+        App { messages, logs }
     }
 
     pub fn run(
-        &self,
+        &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<(), io::Error> {
         let mut input_address = "udpin:0.0.0.0:14550".to_string();
@@ -66,9 +48,6 @@ impl MavlinkMonitor {
         let mut input_heartbeat_id = String::new();
         let mut filter_system_id = String::new();
         let mut active_input = 1; // 1 for input_address, 2 for input_output_file, 3 for input_heartbeat_id, 4 for include_system_id
-        let mut widget_frequencies =
-            AppMessages::new_with(self.message_counts.clone(), self.last_messages.clone());
-        let widget_errors = AppLogs::new_with(self.log_messages.clone());
 
         loop {
             terminal.draw(|f| {
@@ -107,7 +86,7 @@ impl MavlinkMonitor {
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title("Connection Address. Press Enter to connect, q to quit"),
+                            .title("Connection Address"),
                     )
                     .style(Style::default().fg(if active_input == 1 {
                         Color::Yellow
@@ -143,11 +122,12 @@ impl MavlinkMonitor {
                     }));
                 f.render_widget(include_system_id_paragraph, top_chunks[3]);
 
-                let table = widget_frequencies.to_tui_table();
-                let mut state = widget_frequencies.state.clone();
+                let table = self.messages.to_tui_table();
+                let mut state = self.messages.state();
                 f.render_stateful_widget(table, middle_chunks[0], &mut state);
 
-                let selected_message_json = widget_frequencies
+                let selected_message_json = self
+                    .messages
                     .get_selected_message_string()
                     .unwrap_or("No selected message".to_string());
                 let selected_message_paragraph = Paragraph::new(selected_message_json.as_ref())
@@ -159,7 +139,7 @@ impl MavlinkMonitor {
                     .style(Style::default().fg(Color::White));
                 f.render_widget(selected_message_paragraph, middle_chunks[1]);
 
-                let error_table = widget_errors.to_tui_table();
+                let error_table = self.logs.to_tui_table();
                 let mut error_state = TableState::default();
                 f.render_stateful_widget(error_table, chunks[2], &mut error_state);
             })?;
@@ -206,7 +186,6 @@ impl MavlinkMonitor {
                             };
                             self.start_listener(
                                 address,
-                                widget_errors.get_errors(),
                                 output_file,
                                 heartbeat_id,
                                 filter_system_id,
@@ -219,8 +198,8 @@ impl MavlinkMonitor {
                                 active_input + 1
                             };
                         }
-                        KeyCode::Down => widget_frequencies.select_down(),
-                        KeyCode::Up => widget_frequencies.select_up(),
+                        KeyCode::Down => self.messages.select_down(),
+                        KeyCode::Up => self.messages.select_up(),
                         _ => {}
                     }
                 }
@@ -233,100 +212,42 @@ impl MavlinkMonitor {
     fn start_listener(
         &self,
         address: String,
-        logs: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
         output_file: Option<String>,
         heartbeat_id: Option<u8>,
-        filter_system_id: Option<u8>,
+        system_id_filter: Option<u8>,
     ) {
         let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
         {
             Ok(Ok(connection)) => {
-                let mut logs = logs.lock().unwrap();
-                logs.push((
-                    Instant::now(),
-                    LogLevel::Info,
-                    format!("Connected to {}", address),
-                ));
+                self.logs.log_info(&format!("Connected to {}", address));
                 connection
             }
             Ok(Err(e)) => {
-                let mut logs = logs.lock().unwrap();
-                logs.push((Instant::now(), LogLevel::Error, e.to_string()));
+                self.logs
+                    .log_error(&format!("Failed to connect to {address}: {e}"));
+
                 return;
             }
             Err(_) => {
-                let mut logs = logs.lock().unwrap();
-                logs.push((
-                    Instant::now(),
-                    LogLevel::Error,
-                    "Panic occurred while trying to connect".to_string(),
-                ));
+                self.logs
+                    .log_error(&format!("Panic occurred while connecting to {address}"));
                 return;
             }
         };
 
         let connection = Arc::new(Mutex::new(connection));
-        let message_tx = self.message_tx.clone();
-        let logs_tx = self.log_tx.clone();
 
-        let listener = MavlinkListener::new();
+        let listener = Listener::new(
+            connection.clone(),
+            output_file.clone(),
+            self.messages.message_tx(),
+            self.logs.logs_tx(),
+            heartbeat_id,
+            system_id_filter,
+        );
 
         thread::spawn(move || {
-            listener.listen(
-                connection,
-                output_file,
-                message_tx,
-                logs_tx,
-                heartbeat_id,
-                filter_system_id,
-            );
-        });
-    }
-
-    fn listen_to_channels(
-        &self,
-        message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
-        last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-        log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
-        message_rx: mpsc::Receiver<(mavlink::MavHeader, MavMessage)>,
-        log_rx: mpsc::Receiver<(Instant, LogLevel, String)>,
-    ) {
-        let hz_window_size = self.hz_window_size;
-
-        // Get messages
-        thread::spawn(move || {
-            while let Ok((header, message)) = message_rx.recv() {
-                let timestamp = Instant::now();
-
-                let message_json =
-                    serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
-                let message_type = serde_json::from_str::<serde_json::Value>(&message_json)
-                    .ok()
-                    .and_then(|msg| msg.get("type").and_then(|t| t.as_str()).map(String::from))
-                    .unwrap_or_else(|| "UNKNOWN".to_string());
-
-                message_counts
-                    .lock()
-                    .unwrap()
-                    .entry((header.system_id, header.component_id, message_type.clone()))
-                    .or_insert_with(|| {
-                        RollingWindow::new(Duration::from_secs(hz_window_size as u64))
-                    })
-                    .add(timestamp);
-
-                last_messages.lock().unwrap().insert(
-                    (header.system_id, header.component_id, message_type),
-                    message_json,
-                );
-            }
-        });
-
-        // Get logs
-        thread::spawn(move || {
-            while let Ok((timestamp, log_level, message)) = log_rx.recv() {
-                let mut logs = log_messages.lock().unwrap();
-                logs.push((timestamp, log_level, message));
-            }
+            listener.listen();
         });
     }
 }
