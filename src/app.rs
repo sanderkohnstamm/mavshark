@@ -315,6 +315,11 @@ impl App {
                             },
                             KeyCode::Enter => {
                                 let address = input_address.clone();
+                                if !validate_connection_address_input(&address) {
+                                    self.logs.log_error("Invalid connection address");
+                                    continue;
+                                }
+
                                 let output_file = match input_output_file.clone() {
                                     s if s.is_empty() => {
                                         self.logs.log_info("No output file specified");
