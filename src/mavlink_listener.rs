@@ -22,9 +22,16 @@ impl MavlinkListener {
         message_sender: Sender<(MavHeader, MavMessage)>,
         error_sender: Sender<(Instant, String)>,
     ) -> Self {
-        let output_writer = output_file
-            .as_ref()
-            .map(|filename| File::create(filename).expect("Failed to create output file"));
+        let output_writer = match output_file.as_ref().map(|filename| File::create(filename)) {
+            Some(Ok(writer)) => Some(writer),
+            Some(Err(e)) => {
+                error_sender
+                    .send((Instant::now(), format!("Failed to create output file: {e}")))
+                    .unwrap();
+                None
+            }
+            None => None,
+        };
 
         MavlinkListener {
             duration,

@@ -64,7 +64,9 @@ impl MavlinkMonitor {
         &self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<(), io::Error> {
-        let mut input = String::new();
+        let mut input_address = String::new();
+        let mut input_output_file = String::new();
+        let mut active_input = 1; // 1 for input_address, 2 for input_output_file
         let mut widget_frequencies =
             WidgetFrequencies::new_with(self.message_counts.clone(), self.last_messages.clone());
         let widget_errors = WidgetErrors::new_with(self.error_messages.clone());
@@ -84,18 +86,39 @@ impl MavlinkMonitor {
                     )
                     .split(size);
 
+                let top_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+                    .split(chunks[0]);
                 let middle_chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(chunks[1]);
 
-                let input_paragraph =
-                    Paragraph::new(input.as_ref())
+                let input_address_paragraph =
+                    Paragraph::new(input_address.as_ref())
                         .block(Block::default().borders(Borders::ALL).title(
                             "Enter Connection Address (e.g. udpin:0.0.0.0:14550) or q to quit",
                         ))
-                        .style(Style::default().fg(Color::White));
-                f.render_widget(input_paragraph, chunks[0]);
+                        .style(Style::default().fg(if active_input == 1 {
+                            Color::Yellow
+                        } else {
+                            Color::White
+                        }));
+                f.render_widget(input_address_paragraph, top_chunks[0]);
+
+                let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Enter Optional Output File"),
+                    )
+                    .style(Style::default().fg(if active_input == 2 {
+                        Color::Yellow
+                    } else {
+                        Color::White
+                    }));
+                f.render_widget(input_output_file_paragraph, top_chunks[1]);
 
                 let table = widget_frequencies.to_tui_table();
                 let mut state = widget_frequencies.state.clone();
@@ -123,14 +146,30 @@ impl MavlinkMonitor {
                     match key.code {
                         KeyCode::Char('q') => break,
                         KeyCode::Char(c) => {
-                            input.push(c);
+                            if active_input == 1 {
+                                input_address.push(c);
+                            } else {
+                                input_output_file.push(c);
+                            }
                         }
                         KeyCode::Backspace => {
-                            input.pop();
+                            if active_input == 1 {
+                                input_address.pop();
+                            } else {
+                                input_output_file.pop();
+                            }
                         }
                         KeyCode::Enter => {
-                            let address = input.clone();
-                            self.start_listener(address, widget_errors.get_errors());
+                            let address = input_address.clone();
+                            // Output file is option if empty
+                            let output_file = match input_output_file.clone() {
+                                s if s.is_empty() => None,
+                                s => Some(s),
+                            };
+                            self.start_listener(address, widget_errors.get_errors(), output_file);
+                        }
+                        KeyCode::Tab => {
+                            active_input = if active_input == 1 { 2 } else { 1 };
                         }
                         KeyCode::Down => widget_frequencies.select_down(),
                         KeyCode::Up => widget_frequencies.select_up(),
@@ -143,7 +182,12 @@ impl MavlinkMonitor {
         Ok(())
     }
 
-    fn start_listener(&self, address: String, errors: Arc<Mutex<HashMap<String, Instant>>>) {
+    fn start_listener(
+        &self,
+        address: String,
+        errors: Arc<Mutex<HashMap<String, Instant>>>,
+        output_file: Option<String>,
+    ) {
         let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
         {
             Ok(Ok(connection)) => connection,
@@ -164,8 +208,12 @@ impl MavlinkMonitor {
 
         let connection = Arc::new(Mutex::new(connection));
 
-        let listener =
-            MavlinkListener::new(None, None, self.message_tx.clone(), self.error_tx.clone());
+        let listener = MavlinkListener::new(
+            None,
+            output_file,
+            self.message_tx.clone(),
+            self.error_tx.clone(),
+        );
 
         thread::spawn(move || {
             listener.listen(connection);

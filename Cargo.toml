@@ -13,6 +13,7 @@ keywords = ["mavlink", "cli", "drone"]
 categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
+chrono = "0.4.39"
 clap = { version = "4.5.30", features = ["derive"] }
 crossterm = "0.28.1"
 mavlink = { version = "0.13", features = [

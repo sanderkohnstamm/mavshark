@@ -1,7 +1,8 @@
+use chrono::DateTime;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 use tui::{
     layout::Constraint,
@@ -27,23 +28,25 @@ impl WidgetErrors {
         let rows: Vec<Row> = errors
             .iter()
             .map(|(msg, time)| {
-                Row::new(vec![
-                    Spans::from(msg.clone()),
-                    Spans::from(format!("{:?}", time)),
-                ])
+                let duration = time.elapsed();
+                let timestamp = SystemTime::now() - duration;
+                let datetime: DateTime<chrono::Utc> = timestamp.into();
+                let formatted_time = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                Row::new(vec![Spans::from(formatted_time), Spans::from(msg.clone())])
             })
             .collect();
 
         Table::new(rows)
             .header(Row::new(vec![
-                Spans::from("Error Message"),
                 Spans::from("Timestamp"),
+                Spans::from("Error Message"),
             ]))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title("Error Messages"),
             )
-            .widths(&[Constraint::Percentage(70), Constraint::Percentage(30)])
+            .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])
     }
 }

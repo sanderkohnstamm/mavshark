@@ -21,12 +21,12 @@ fn main() {
         Terminal::new(backend).expect("Failed to create terminal");
 
     if let Err(e) = monitor.run(&mut terminal) {
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )
-        .expect("Failed to leave alternate screen and disable mouse capture");
         eprintln!("Error: {}", e);
     }
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )
+    .expect("Failed to leave alternate screen and disable mouse capture");
 }
