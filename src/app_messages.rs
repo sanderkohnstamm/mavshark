@@ -14,18 +14,18 @@ use tui::{
 
 use super::rolling_window::RollingWindow;
 
-pub struct WidgetFrequencies {
+pub struct AppMessages {
     message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
     last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
     pub state: TableState,
 }
 
-impl WidgetFrequencies {
+impl AppMessages {
     pub fn new_with(
         message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
         last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-    ) -> WidgetFrequencies {
-        let widget_frequencies = WidgetFrequencies {
+    ) -> AppMessages {
+        let widget_frequencies = AppMessages {
             message_counts,
             last_messages,
             state: TableState::default(),

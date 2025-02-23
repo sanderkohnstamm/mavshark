@@ -2,6 +2,7 @@ use mavlink::{
     common::{MavAutopilot, MavMessage, MavModeFlag, MavState, MavType},
     MavConnection, MavHeader,
 };
+
 use serde_json::json;
 use std::io::Write;
 use std::sync::mpsc::Sender;
@@ -11,6 +12,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+
+use crate::app_logs::LogLevel;
 
 pub struct MavlinkListener {}
 
@@ -24,15 +27,36 @@ impl MavlinkListener {
         connection: Arc<Mutex<Box<dyn MavConnection<MavMessage> + Send + Sync>>>,
         output_file: Option<String>,
         message_sender: Sender<(MavHeader, MavMessage)>,
-        error_sender: Sender<(Instant, String)>,
+        log_sender: Sender<(Instant, LogLevel, String)>,
         heartbeat_id: Option<u8>,
         filter_system_id: Option<u8>,
     ) {
+        log_sender
+            .send((
+                Instant::now(),
+                LogLevel::Info,
+                "Starting MAVLink listener".to_string(),
+            ))
+            .unwrap();
+
         let output_writer = match output_file.as_ref().map(|filename| File::create(filename)) {
-            Some(Ok(writer)) => Some(writer),
+            Some(Ok(writer)) => {
+                log_sender
+                    .send((
+                        Instant::now(),
+                        LogLevel::Info,
+                        format!("Output file created: {}", output_file.unwrap()),
+                    ))
+                    .unwrap();
+                Some(writer)
+            }
             Some(Err(e)) => {
-                error_sender
-                    .send((Instant::now(), format!("Failed to create output file: {e}")))
+                log_sender
+                    .send((
+                        Instant::now(),
+                        LogLevel::Error,
+                        format!("Failed to create output file: {e}"),
+                    ))
                     .unwrap();
                 None
             }
@@ -41,7 +65,24 @@ impl MavlinkListener {
 
         if let Some(heartbeat_id) = heartbeat_id {
             let conn = connection.clone();
+            log_sender
+                .send((
+                    Instant::now(),
+                    LogLevel::Info,
+                    format!("Starting heartbeat loop with ID: {}", heartbeat_id),
+                ))
+                .unwrap();
             start_heartbeat_loop(conn, heartbeat_id);
+        }
+
+        if let Some(filter) = filter_system_id {
+            log_sender
+                .send((
+                    Instant::now(),
+                    LogLevel::Info,
+                    format!("Filtering messages on system ID: {}", filter),
+                ))
+                .unwrap();
         }
 
         let start_time = Instant::now();
@@ -59,21 +100,26 @@ impl MavlinkListener {
                     let time_diff = current_timestamp.duration_since(last_timestamp);
                     last_timestamp = current_timestamp;
 
-                    self.write_logs(&header, &message, time_diff, output_writer.as_ref());
+                    self.write_message_to_file(
+                        &header,
+                        &message,
+                        time_diff,
+                        output_writer.as_ref(),
+                    );
                     message_sender
                         .send((header, message))
                         .expect("Failed to send message to monitor");
                 }
                 Err(e) => {
-                    error_sender
-                        .send((Instant::now(), e.to_string()))
+                    log_sender
+                        .send((Instant::now(), LogLevel::Error, e.to_string()))
                         .expect("Failed to send error to monitor");
                 }
             }
         }
     }
 
-    fn write_logs(
+    fn write_message_to_file(
         &self,
         header: &MavHeader,
         message: &MavMessage,
@@ -103,22 +149,12 @@ impl MavlinkListener {
         // component_id: u8,
         include_system_ids: Option<u8>,
     ) -> bool {
-        // if self.exclude_system_ids.contains(&system_id) {
-        //     return true;
-        // }
         if let Some(sys_id) = include_system_ids {
             if sys_id != system_id {
                 return true;
             }
         }
-        // if self.exclude_component_ids.contains(&component_id) {
-        //     return true;
-        // }
-        // if !self.include_component_ids.is_empty()
-        //     && !self.include_component_ids.contains(&component_id)
-        // {
-        //     return true;
-        // }
+
         false
     }
 }

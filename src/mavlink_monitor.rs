@@ -1,9 +1,8 @@
-mod rolling_window;
-mod widget_errors;
-mod widget_frequencies;
-
+use crate::app_messages::AppMessages;
 use crate::mavlink_listener::MavlinkListener;
+use crate::{app_logs, rolling_window};
 
+use app_logs::{AppLogs, LogLevel};
 use crossterm::event::{self, Event, KeyCode};
 use mavlink::common::MavMessage;
 use rolling_window::RollingWindow;
@@ -21,41 +20,39 @@ use tui::{
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
-use widget_errors::WidgetErrors;
-use widget_frequencies::WidgetFrequencies;
 
 pub struct MavlinkMonitor {
     hz_window_size: usize,
     message_tx: mpsc::Sender<(mavlink::MavHeader, MavMessage)>,
-    error_tx: mpsc::Sender<(Instant, String)>,
+    log_tx: mpsc::Sender<(Instant, LogLevel, String)>,
     message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
     last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-    error_messages: Arc<Mutex<HashMap<String, Instant>>>,
+    log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
 }
 
 impl MavlinkMonitor {
     pub fn new() -> Self {
         let (message_tx, message_rx) = mpsc::channel();
-        let (error_tx, error_rx) = mpsc::channel();
+        let (log_tx, log_rx) = mpsc::channel();
         let message_counts = Arc::new(Mutex::new(HashMap::new()));
         let last_messages = Arc::new(Mutex::new(HashMap::new()));
-        let error_messages = Arc::new(Mutex::new(HashMap::new()));
+        let log_messages = Arc::new(Mutex::new(Vec::new()));
 
         let monitor = MavlinkMonitor {
             hz_window_size: 10,
             message_tx,
-            error_tx,
+            log_tx,
             message_counts: message_counts.clone(),
             last_messages: last_messages.clone(),
-            error_messages: error_messages.clone(),
+            log_messages: log_messages.clone(),
         };
 
         monitor.listen_to_channels(
             message_counts,
             last_messages,
-            error_messages,
+            log_messages,
             message_rx,
-            error_rx,
+            log_rx,
         );
         monitor
     }
@@ -70,8 +67,8 @@ impl MavlinkMonitor {
         let mut filter_system_id = String::new();
         let mut active_input = 1; // 1 for input_address, 2 for input_output_file, 3 for input_heartbeat_id, 4 for include_system_id
         let mut widget_frequencies =
-            WidgetFrequencies::new_with(self.message_counts.clone(), self.last_messages.clone());
-        let widget_errors = WidgetErrors::new_with(self.error_messages.clone());
+            AppMessages::new_with(self.message_counts.clone(), self.last_messages.clone());
+        let widget_errors = AppLogs::new_with(self.log_messages.clone());
 
         loop {
             terminal.draw(|f| {
@@ -236,32 +233,41 @@ impl MavlinkMonitor {
     fn start_listener(
         &self,
         address: String,
-        errors: Arc<Mutex<HashMap<String, Instant>>>,
+        logs: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
         output_file: Option<String>,
         heartbeat_id: Option<u8>,
         filter_system_id: Option<u8>,
     ) {
         let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
         {
-            Ok(Ok(connection)) => connection,
+            Ok(Ok(connection)) => {
+                let mut logs = logs.lock().unwrap();
+                logs.push((
+                    Instant::now(),
+                    LogLevel::Info,
+                    format!("Connected to {}", address),
+                ));
+                connection
+            }
             Ok(Err(e)) => {
-                let mut errors = errors.lock().unwrap();
-                errors.insert(e.to_string(), Instant::now());
+                let mut logs = logs.lock().unwrap();
+                logs.push((Instant::now(), LogLevel::Error, e.to_string()));
                 return;
             }
             Err(_) => {
-                let mut errors = errors.lock().unwrap();
-                errors.insert(
-                    "Panic occurred while trying to connect".to_string(),
+                let mut logs = logs.lock().unwrap();
+                logs.push((
                     Instant::now(),
-                );
+                    LogLevel::Error,
+                    "Panic occurred while trying to connect".to_string(),
+                ));
                 return;
             }
         };
 
         let connection = Arc::new(Mutex::new(connection));
         let message_tx = self.message_tx.clone();
-        let error_tx = self.error_tx.clone();
+        let logs_tx = self.log_tx.clone();
 
         let listener = MavlinkListener::new();
 
@@ -270,7 +276,7 @@ impl MavlinkMonitor {
                 connection,
                 output_file,
                 message_tx,
-                error_tx,
+                logs_tx,
                 heartbeat_id,
                 filter_system_id,
             );
@@ -281,9 +287,9 @@ impl MavlinkMonitor {
         &self,
         message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
         last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
-        error_messages: Arc<Mutex<HashMap<String, Instant>>>,
+        log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
         message_rx: mpsc::Receiver<(mavlink::MavHeader, MavMessage)>,
-        error_rx: mpsc::Receiver<(Instant, String)>,
+        log_rx: mpsc::Receiver<(Instant, LogLevel, String)>,
     ) {
         let hz_window_size = self.hz_window_size;
 
@@ -315,11 +321,11 @@ impl MavlinkMonitor {
             }
         });
 
-        // Get errors
+        // Get logs
         thread::spawn(move || {
-            while let Ok((timestamp, error_message)) = error_rx.recv() {
-                let mut errors = error_messages.lock().unwrap();
-                errors.insert(error_message, timestamp);
+            while let Ok((timestamp, log_level, message)) = log_rx.recv() {
+                let mut logs = log_messages.lock().unwrap();
+                logs.push((timestamp, log_level, message));
             }
         });
     }
