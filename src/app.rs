@@ -44,9 +44,10 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<(), io::Error> {
         let mut input_address = "udpin:0.0.0.0:14550".to_string();
-        let mut input_output_file = String::new();
+        let mut input_output_file = "output.txt".to_string();
         let mut input_heartbeat_id = String::new();
-        let mut filter_system_id = String::new();
+        let mut input_system_id_filter = String::new();
+        let mut input_component_id_filter = String::new();
         let mut active_input = 1; // 1 for input_address, 2 for input_output_file, 3 for input_heartbeat_id, 4 for include_system_id
 
         loop {
@@ -68,8 +69,9 @@ impl App {
                     .direction(Direction::Horizontal)
                     .constraints(
                         [
-                            Constraint::Percentage(40),
-                            Constraint::Percentage(40),
+                            Constraint::Percentage(35),
+                            Constraint::Percentage(35),
+                            Constraint::Percentage(10),
                             Constraint::Percentage(10),
                             Constraint::Percentage(10),
                         ]
@@ -81,7 +83,6 @@ impl App {
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(chunks[1]);
-
                 let input_address_paragraph = Paragraph::new(input_address.as_ref())
                     .block(
                         Block::default()
@@ -89,7 +90,11 @@ impl App {
                             .title("Connection Address"),
                     )
                     .style(Style::default().fg(if active_input == 1 {
-                        Color::Yellow
+                        if validate_connection_address_input(&input_address) {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        }
                     } else {
                         Color::White
                     }));
@@ -98,7 +103,13 @@ impl App {
                 let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
                     .block(Block::default().borders(Borders::ALL).title("Output file"))
                     .style(Style::default().fg(if active_input == 2 {
-                        Color::Yellow
+                        if input_output_file.is_empty() {
+                            Color::Blue
+                        } else if validate_output_file_input(&input_output_file) {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        }
                     } else {
                         Color::White
                     }));
@@ -107,20 +118,47 @@ impl App {
                 let input_heartbeat_id_paragraph = Paragraph::new(input_heartbeat_id.as_ref())
                     .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
                     .style(Style::default().fg(if active_input == 3 {
-                        Color::Yellow
+                        if input_heartbeat_id.is_empty() {
+                            Color::Blue
+                        } else if validate_u8_input(&input_heartbeat_id) {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        }
                     } else {
                         Color::White
                     }));
                 f.render_widget(input_heartbeat_id_paragraph, top_chunks[2]);
 
-                let include_system_id_paragraph = Paragraph::new(filter_system_id.as_ref())
+                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.as_ref())
                     .block(Block::default().borders(Borders::ALL).title("Sys ID"))
                     .style(Style::default().fg(if active_input == 4 {
-                        Color::Yellow
+                        if input_system_id_filter.is_empty() {
+                            Color::Blue
+                        } else if validate_u8_input(&input_system_id_filter) {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        }
                     } else {
                         Color::White
                     }));
                 f.render_widget(include_system_id_paragraph, top_chunks[3]);
+
+                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Comp ID"))
+                    .style(Style::default().fg(if active_input == 4 {
+                        if input_system_id_filter.is_empty() {
+                            Color::Blue
+                        } else if validate_u8_input(&input_system_id_filter) {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        }
+                    } else {
+                        Color::White
+                    }));
+                f.render_widget(include_system_id_paragraph, top_chunks[4]);
 
                 let table = self.messages.to_tui_table();
                 let mut state = self.messages.state();
@@ -139,9 +177,9 @@ impl App {
                     .style(Style::default().fg(Color::White));
                 f.render_widget(selected_message_paragraph, middle_chunks[1]);
 
-                let error_table = self.logs.to_tui_table();
-                let mut error_state = TableState::default();
-                f.render_stateful_widget(error_table, chunks[2], &mut error_state);
+                let logs_table = self.logs.to_tui_table();
+                let mut logs_state = TableState::default();
+                f.render_stateful_widget(logs_table, chunks[2], &mut logs_state);
             })?;
 
             if event::poll(Duration::from_millis(100))? {
@@ -152,7 +190,8 @@ impl App {
                             1 => input_address.push(c),
                             2 => input_output_file.push(c),
                             3 => input_heartbeat_id.push(c),
-                            4 => filter_system_id.push(c),
+                            4 => input_system_id_filter.push(c),
+                            5 => input_component_id_filter.push(c),
                             _ => {}
                         },
                         KeyCode::Backspace => match active_input {
@@ -166,29 +205,51 @@ impl App {
                                 input_heartbeat_id.pop();
                             }
                             4 => {
-                                filter_system_id.pop();
+                                input_system_id_filter.pop();
+                            }
+                            5 => {
+                                input_component_id_filter.pop();
                             }
                             _ => {}
                         },
                         KeyCode::Enter => {
                             let address = input_address.clone();
                             let output_file = match input_output_file.clone() {
-                                s if s.is_empty() => None,
+                                s if s.is_empty() => {
+                                    self.logs.log_info("No output file specified");
+                                    None
+                                }
                                 s => Some(s),
                             };
+
                             let heartbeat_id = match input_heartbeat_id.parse::<u8>() {
                                 Ok(id) => Some(id),
-                                Err(_) => None,
+                                Err(_) => {
+                                    self.logs.log_info("Invalid or no heartbeat ID");
+                                    None
+                                }
                             };
-                            let filter_system_id = match filter_system_id.parse::<u8>() {
+                            let system_id_filter = match input_system_id_filter.parse::<u8>() {
                                 Ok(id) => Some(id),
-                                Err(_) => None,
+                                Err(_) => {
+                                    self.logs.log_info("Invalid or no system ID filter");
+                                    None
+                                }
+                            };
+                            let component_id_filter = match input_component_id_filter.parse::<u8>()
+                            {
+                                Ok(id) => Some(id),
+                                Err(_) => {
+                                    self.logs.log_info("Invalid or no component ID filter");
+                                    None
+                                }
                             };
                             self.start_listener(
                                 address,
                                 output_file,
                                 heartbeat_id,
-                                filter_system_id,
+                                system_id_filter,
+                                component_id_filter,
                             );
                         }
                         KeyCode::Tab => {
@@ -215,6 +276,7 @@ impl App {
         output_file: Option<String>,
         heartbeat_id: Option<u8>,
         system_id_filter: Option<u8>,
+        component_id_filter: Option<u8>,
     ) {
         let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
         {
@@ -244,10 +306,47 @@ impl App {
             self.logs.logs_tx(),
             heartbeat_id,
             system_id_filter,
+            component_id_filter,
         );
 
         thread::spawn(move || {
             listener.listen();
         });
     }
+}
+
+fn validate_u8_input(input: &str) -> bool {
+    input.parse::<u8>().is_ok()
+}
+
+fn validate_output_file_input(input: &str) -> bool {
+    input.ends_with(".txt")
+        && input
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '/')
+}
+
+fn validate_connection_address_input(input: &str) -> bool {
+    // Basic validation for MAVLink connection address (e.g., "udpin:0.0.0.0:14550")
+    let parts: Vec<&str> = input.split(':').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let protocol = parts[0];
+    let ip = parts[1];
+    let port = parts[2];
+
+    if protocol != "udpin" && protocol != "udpout" && protocol != "tcpin" && protocol != "tcpout" {
+        return false;
+    }
+
+    if !ip.parse::<std::net::Ipv4Addr>().is_ok() {
+        return false;
+    }
+
+    if !port.parse::<u16>().is_ok() {
+        return false;
+    }
+
+    true
 }

@@ -22,6 +22,7 @@ pub struct Listener {
     logs_tx: Sender<(Instant, LogLevel, String)>,
     heartbeat_id: Option<u8>,
     system_id_filter: Option<u8>,
+    component_id_filter: Option<u8>,
 }
 
 impl Listener {
@@ -32,6 +33,7 @@ impl Listener {
         logs_tx: Sender<(Instant, LogLevel, String)>,
         heartbeat_id: Option<u8>,
         system_id_filter: Option<u8>,
+        component_id_filter: Option<u8>,
     ) -> Self {
         Listener {
             connection,
@@ -40,6 +42,7 @@ impl Listener {
             logs_tx,
             heartbeat_id,
             system_id_filter,
+            component_id_filter,
         }
     }
 
@@ -61,7 +64,7 @@ impl Listener {
             let conn = self.connection.lock().unwrap();
             match conn.recv() {
                 Ok((header, message)) => {
-                    if self.should_filter_message(header.system_id) {
+                    if self.should_filter_message(header.system_id, header.component_id) {
                         continue;
                     }
 
@@ -141,9 +144,15 @@ impl Listener {
         }
     }
 
-    fn should_filter_message(&self, system_id: u8) -> bool {
+    fn should_filter_message(&self, system_id: u8, component_id: u8) -> bool {
         if let Some(sys_id) = self.system_id_filter {
             if sys_id != system_id {
+                return true;
+            }
+        }
+
+        if let Some(comp_id) = self.component_id_filter {
+            if comp_id != component_id {
                 return true;
             }
         }

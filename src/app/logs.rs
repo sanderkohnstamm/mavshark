@@ -83,15 +83,8 @@ impl Logs {
             .collect();
 
         Table::new(rows)
-            .header(Row::new(vec![
-                Spans::from("Timestamp"),
-                Spans::from("Error Message"),
-            ]))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Error Messages"),
-            )
-            .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])
+            .header(Row::new(vec![Spans::from("Timestamp"), Spans::from("Log")]))
+            .block(Block::default().borders(Borders::ALL).title("Logs"))
+            .widths(&[Constraint::Percentage(20), Constraint::Percentage(80)])
     }
 }
