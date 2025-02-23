@@ -1,5 +1,8 @@
+mod app_logs;
+mod app_messages;
 mod mavlink_listener;
 mod mavlink_monitor;
+mod rolling_window;
 
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
