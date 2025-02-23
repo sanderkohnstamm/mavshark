@@ -66,7 +66,9 @@ impl MavlinkMonitor {
     ) -> Result<(), io::Error> {
         let mut input_address = "udpin:0.0.0.0:14550".to_string();
         let mut input_output_file = String::new();
-        let mut active_input = 1; // 1 for input_address, 2 for input_output_file
+        let mut input_heartbeat_id = String::new();
+        let mut filter_system_id = String::new();
+        let mut active_input = 1; // 1 for input_address, 2 for input_output_file, 3 for input_heartbeat_id, 4 for include_system_id
         let mut widget_frequencies =
             WidgetFrequencies::new_with(self.message_counts.clone(), self.last_messages.clone());
         let widget_errors = WidgetErrors::new_with(self.error_messages.clone());
@@ -88,8 +90,17 @@ impl MavlinkMonitor {
 
                 let top_chunks = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+                    .constraints(
+                        [
+                            Constraint::Percentage(40),
+                            Constraint::Percentage(40),
+                            Constraint::Percentage(10),
+                            Constraint::Percentage(10),
+                        ]
+                        .as_ref(),
+                    )
                     .split(chunks[0]);
+
                 let middle_chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
@@ -117,6 +128,24 @@ impl MavlinkMonitor {
                     }));
                 f.render_widget(input_output_file_paragraph, top_chunks[1]);
 
+                let input_heartbeat_id_paragraph = Paragraph::new(input_heartbeat_id.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
+                    .style(Style::default().fg(if active_input == 3 {
+                        Color::Yellow
+                    } else {
+                        Color::White
+                    }));
+                f.render_widget(input_heartbeat_id_paragraph, top_chunks[2]);
+
+                let include_system_id_paragraph = Paragraph::new(filter_system_id.as_ref())
+                    .block(Block::default().borders(Borders::ALL).title("Sys ID"))
+                    .style(Style::default().fg(if active_input == 4 {
+                        Color::Yellow
+                    } else {
+                        Color::White
+                    }));
+                f.render_widget(include_system_id_paragraph, top_chunks[3]);
+
                 let table = widget_frequencies.to_tui_table();
                 let mut state = widget_frequencies.state.clone();
                 f.render_stateful_widget(table, middle_chunks[0], &mut state);
@@ -142,31 +171,56 @@ impl MavlinkMonitor {
                 if let Event::Key(key) = event::read()? {
                     match key.code {
                         KeyCode::Char('q') => break,
-                        KeyCode::Char(c) => {
-                            if active_input == 1 {
-                                input_address.push(c);
-                            } else {
-                                input_output_file.push(c);
-                            }
-                        }
-                        KeyCode::Backspace => {
-                            if active_input == 1 {
+                        KeyCode::Char(c) => match active_input {
+                            1 => input_address.push(c),
+                            2 => input_output_file.push(c),
+                            3 => input_heartbeat_id.push(c),
+                            4 => filter_system_id.push(c),
+                            _ => {}
+                        },
+                        KeyCode::Backspace => match active_input {
+                            1 => {
                                 input_address.pop();
-                            } else {
+                            }
+                            2 => {
                                 input_output_file.pop();
                             }
-                        }
+                            3 => {
+                                input_heartbeat_id.pop();
+                            }
+                            4 => {
+                                filter_system_id.pop();
+                            }
+                            _ => {}
+                        },
                         KeyCode::Enter => {
                             let address = input_address.clone();
-                            // Output file is option if empty
                             let output_file = match input_output_file.clone() {
                                 s if s.is_empty() => None,
                                 s => Some(s),
                             };
-                            self.start_listener(address, widget_errors.get_errors(), output_file);
+                            let heartbeat_id = match input_heartbeat_id.parse::<u8>() {
+                                Ok(id) => Some(id),
+                                Err(_) => None,
+                            };
+                            let filter_system_id = match filter_system_id.parse::<u8>() {
+                                Ok(id) => Some(id),
+                                Err(_) => None,
+                            };
+                            self.start_listener(
+                                address,
+                                widget_errors.get_errors(),
+                                output_file,
+                                heartbeat_id,
+                                filter_system_id,
+                            );
                         }
                         KeyCode::Tab => {
-                            active_input = if active_input == 1 { 2 } else { 1 };
+                            active_input = if active_input == 4 {
+                                1
+                            } else {
+                                active_input + 1
+                            };
                         }
                         KeyCode::Down => widget_frequencies.select_down(),
                         KeyCode::Up => widget_frequencies.select_up(),
@@ -184,6 +238,8 @@ impl MavlinkMonitor {
         address: String,
         errors: Arc<Mutex<HashMap<String, Instant>>>,
         output_file: Option<String>,
+        heartbeat_id: Option<u8>,
+        filter_system_id: Option<u8>,
     ) {
         let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
         {
@@ -204,16 +260,20 @@ impl MavlinkMonitor {
         };
 
         let connection = Arc::new(Mutex::new(connection));
+        let message_tx = self.message_tx.clone();
+        let error_tx = self.error_tx.clone();
 
-        let listener = MavlinkListener::new(
-            None,
-            output_file,
-            self.message_tx.clone(),
-            self.error_tx.clone(),
-        );
+        let listener = MavlinkListener::new();
 
         thread::spawn(move || {
-            listener.listen(connection);
+            listener.listen(
+                connection,
+                output_file,
+                message_tx,
+                error_tx,
+                heartbeat_id,
+                filter_system_id,
+            );
         });
     }
 
