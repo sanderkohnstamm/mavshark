@@ -1,112 +1,221 @@
 mod rolling_window;
-use std::{
-    collections::HashMap,
-    io::{stdout, Write},
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
-};
+mod widget_errors;
+mod widget_frequencies;
 
-use crossterm::{
-    cursor::{Hide, MoveTo},
-    execute,
-    terminal::{Clear, ClearType},
-};
+use crate::mavlink_listener::MavlinkListener;
 
+use crossterm::event::{self, Event, KeyCode};
+use mavlink::common::MavMessage;
 use rolling_window::RollingWindow;
+use std::collections::HashMap;
+use std::io;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
+use tui::widgets::TableState;
+use tui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
+};
+use widget_errors::WidgetErrors;
+use widget_frequencies::WidgetFrequencies;
 
 pub struct MavlinkMonitor {
-    message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
-    monitor_clear_threshold: Duration,
-    monitor_interval: Duration,
     hz_window_size: usize,
+    message_tx: mpsc::Sender<(mavlink::MavHeader, MavMessage)>,
+    error_tx: mpsc::Sender<(Instant, String)>,
+    message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
+    last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
+    error_messages: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl MavlinkMonitor {
     pub fn new() -> Self {
-        MavlinkMonitor {
-            message_counts: Arc::new(Mutex::new(HashMap::new())),
-            monitor_clear_threshold: Duration::from_secs(2),
-            monitor_interval: Duration::from_millis(200),
+        let (message_tx, message_rx) = mpsc::channel();
+        let (error_tx, error_rx) = mpsc::channel();
+        let message_counts = Arc::new(Mutex::new(HashMap::new()));
+        let last_messages = Arc::new(Mutex::new(HashMap::new()));
+        let error_messages = Arc::new(Mutex::new(HashMap::new()));
+
+        let monitor = MavlinkMonitor {
             hz_window_size: 10,
-        }
+            message_tx,
+            error_tx,
+            message_counts: message_counts.clone(),
+            last_messages: last_messages.clone(),
+            error_messages: error_messages.clone(),
+        };
+
+        monitor.listen_to_channels(
+            message_counts,
+            last_messages,
+            error_messages,
+            message_rx,
+            error_rx,
+        );
+        monitor
     }
 
-    pub fn start(&self, optional_output: Option<String>) {
-        let message_counts = Arc::clone(&self.message_counts);
-        let monitor_clear_threshold = self.monitor_clear_threshold;
-        let monitor_interval = self.monitor_interval;
-
-        // Thread for displaying the monitor
-        thread::spawn(move || {
-            let mut stdout = stdout();
-            execute!(stdout, Hide).unwrap();
-
-            loop {
-                thread::sleep(monitor_interval);
-
-                let message_counts = message_counts.lock().unwrap();
-
-                let mut output = String::new();
-                output.push_str(&format!("{}\n", "-".repeat(75)));
-
-                if let Some(ref output_text) = optional_output {
-                    output.push_str(&format!(
-                        "{:<37}{:>37}\n",
-                        "MAVSHARK MONITOR 🦈", output_text
-                    ));
-                } else {
-                    output.push_str(&format!("{:^75}\n", "MAVSHARK MONITOR 🦈"));
-                }
-
-                output.push_str(&format!("{}\n", "-".repeat(75)));
-                output.push_str(&format!(
-                    "{:<10} | {:<15} | {:<35} | {:<10}\n",
-                    "System ID", "Component ID", "Message Type", "Hz"
-                ));
-                output.push_str(&format!("{}\n", "-".repeat(75)));
-
-                for ((system_id, component_id, msg_type), window) in message_counts.iter() {
-                    let hz = window.get_hz();
-                    output.push_str(&format!(
-                        "{:<10} | {:<15} | {:<35} | {:<10.2}\n",
-                        system_id, component_id, msg_type, hz
-                    ));
-                }
-
-                execute!(stdout, MoveTo(0, 0), Clear(ClearType::FromCursorDown)).unwrap();
-                print!("{}", output);
-                stdout.flush().unwrap();
-            }
-        });
-
-        // Thread for calculating Hz values and retaining windows
-        let message_counts = Arc::clone(&self.message_counts);
-        thread::spawn(move || loop {
-            thread::sleep(monitor_interval);
-
-            let mut message_counts = message_counts.lock().unwrap();
-            let current_timestamp = Instant::now();
-
-            message_counts.retain(|_, window| !window.should_be_cleared(monitor_clear_threshold));
-
-            for window in message_counts.values_mut() {
-                window.calculate_hz(current_timestamp);
-            }
-        });
-    }
-
-    pub fn update(
+    pub fn run(
         &self,
-        system_id: u8,
-        component_id: u8,
-        message_type: String,
-        timestamp: Instant,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> Result<(), io::Error> {
+        let mut input = String::new();
+        let mut widget_frequencies =
+            WidgetFrequencies::new_with(self.message_counts.clone(), self.last_messages.clone());
+        let widget_errors = WidgetErrors::new_with(self.error_messages.clone());
+
+        loop {
+            terminal.draw(|f| {
+                let size = f.size();
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(
+                        [
+                            Constraint::Percentage(10),
+                            Constraint::Percentage(75),
+                            Constraint::Percentage(15),
+                        ]
+                        .as_ref(),
+                    )
+                    .split(size);
+
+                let middle_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+                    .split(chunks[1]);
+
+                let input_paragraph =
+                    Paragraph::new(input.as_ref())
+                        .block(Block::default().borders(Borders::ALL).title(
+                            "Enter Connection Address (e.g. udpin:0.0.0.0:14550) or q to quit",
+                        ))
+                        .style(Style::default().fg(Color::White));
+                f.render_widget(input_paragraph, chunks[0]);
+
+                let table = widget_frequencies.to_tui_table();
+                let mut state = widget_frequencies.state.clone();
+                f.render_stateful_widget(table, middle_chunks[0], &mut state);
+
+                let selected_message_json = widget_frequencies
+                    .get_selected_message_string()
+                    .unwrap_or("No selected message".to_string());
+                let selected_message_paragraph = Paragraph::new(selected_message_json.as_ref())
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Selected Message"),
+                    )
+                    .style(Style::default().fg(Color::White));
+                f.render_widget(selected_message_paragraph, middle_chunks[1]);
+
+                let error_table = widget_errors.to_tui_table();
+                let mut error_state = TableState::default();
+                f.render_stateful_widget(error_table, chunks[2], &mut error_state);
+            })?;
+
+            if event::poll(Duration::from_millis(100))? {
+                if let Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char(c) => {
+                            input.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            input.pop();
+                        }
+                        KeyCode::Enter => {
+                            let address = input.clone();
+                            self.start_listener(address, widget_errors.get_errors());
+                        }
+                        KeyCode::Down => widget_frequencies.select_down(),
+                        KeyCode::Up => widget_frequencies.select_up(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn start_listener(&self, address: String, errors: Arc<Mutex<HashMap<String, Instant>>>) {
+        let connection = match std::panic::catch_unwind(|| mavlink::connect::<MavMessage>(&address))
+        {
+            Ok(Ok(connection)) => connection,
+            Ok(Err(e)) => {
+                let mut errors = errors.lock().unwrap();
+                errors.insert(e.to_string(), Instant::now());
+                return;
+            }
+            Err(_) => {
+                let mut errors = errors.lock().unwrap();
+                errors.insert(
+                    "Panic occurred while trying to connect".to_string(),
+                    Instant::now(),
+                );
+                return;
+            }
+        };
+
+        let connection = Arc::new(Mutex::new(connection));
+
+        let listener =
+            MavlinkListener::new(None, None, self.message_tx.clone(), self.error_tx.clone());
+
+        thread::spawn(move || {
+            listener.listen(connection);
+        });
+    }
+
+    fn listen_to_channels(
+        &self,
+        message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
+        last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
+        error_messages: Arc<Mutex<HashMap<String, Instant>>>,
+        message_rx: mpsc::Receiver<(mavlink::MavHeader, MavMessage)>,
+        error_rx: mpsc::Receiver<(Instant, String)>,
     ) {
-        let mut message_counts = self.message_counts.lock().unwrap();
-        message_counts
-            .entry((system_id, component_id, message_type))
-            .or_insert_with(|| RollingWindow::new(self.hz_window_size))
-            .add(timestamp);
+        let hz_window_size = self.hz_window_size;
+
+        // Get messages
+        thread::spawn(move || {
+            while let Ok((header, message)) = message_rx.recv() {
+                let timestamp = Instant::now();
+
+                let message_json =
+                    serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
+                let message_type = serde_json::from_str::<serde_json::Value>(&message_json)
+                    .ok()
+                    .and_then(|msg| msg.get("type").and_then(|t| t.as_str()).map(String::from))
+                    .unwrap_or_else(|| "UNKNOWN".to_string());
+
+                message_counts
+                    .lock()
+                    .unwrap()
+                    .entry((header.system_id, header.component_id, message_type.clone()))
+                    .or_insert_with(|| {
+                        RollingWindow::new(Duration::from_secs(hz_window_size as u64))
+                    })
+                    .add(timestamp);
+
+                last_messages.lock().unwrap().insert(
+                    (header.system_id, header.component_id, message_type),
+                    message_json,
+                );
+            }
+        });
+
+        // Get errors
+        thread::spawn(move || {
+            while let Ok((timestamp, error_message)) = error_rx.recv() {
+                let mut errors = error_messages.lock().unwrap();
+                errors.insert(error_message, timestamp);
+            }
+        });
     }
 }
