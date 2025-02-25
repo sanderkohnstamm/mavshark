@@ -4,7 +4,7 @@ use app::App;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{
@@ -31,4 +31,5 @@ fn main() {
         DisableMouseCapture
     )
     .expect("Failed to leave alternate screen and disable mouse capture");
+    disable_raw_mode().expect("Failed to disable raw mode");
 }
