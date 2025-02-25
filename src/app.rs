@@ -9,7 +9,7 @@ use logs::Logs;
 use mavlink::common::MavMessage;
 use messages::Messages;
 use ratatui::symbols;
-use ratatui::widgets::{Axis, Chart, Dataset, TableState};
+use ratatui::widgets::{Axis, Chart, Dataset, Table, TableState};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -80,230 +80,10 @@ impl App {
             }
         }
     }
+}
 
-    fn draw_ui(&mut self, f: &mut ratatui::Frame) {
-        let size = f.area();
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(
-                [
-                    Constraint::Length(3), // Adjusted to ensure one line height
-                    Constraint::Percentage(75),
-                    Constraint::Percentage(15),
-                ]
-                .as_ref(),
-            )
-            .split(size);
-
-        let top_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-                [
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(10),
-                ]
-                .as_ref(),
-            )
-            .split(chunks[0]);
-        let middle_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
-            .split(chunks[1]);
-        let bottom_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
-            .split(chunks[2]);
-
-        let selected_message_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
-            .split(middle_chunks[1]);
-
-        let input_address_paragraph = Paragraph::new(self.input_address.clone())
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Connection Address"),
-            )
-            .style(
-                Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                    Color::Gray
-                } else if self.active_input == 1 {
-                    if validate_connection_address_input(&self.input_address) {
-                        Color::Green
-                    } else {
-                        Color::Red
-                    }
-                } else {
-                    Color::White
-                }),
-            );
-        f.render_widget(input_address_paragraph, top_chunks[0]);
-
-        let input_output_file_paragraph = Paragraph::new(self.input_output_file.clone())
-            .block(Block::default().borders(Borders::ALL).title("Output file"))
-            .style(
-                Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                    Color::Gray
-                } else if self.active_input == 2 {
-                    if self.input_output_file.is_empty() {
-                        Color::Blue
-                    } else if validate_output_file_input(&self.input_output_file) {
-                        Color::Green
-                    } else {
-                        Color::Red
-                    }
-                } else {
-                    Color::White
-                }),
-            );
-        f.render_widget(input_output_file_paragraph, top_chunks[1]);
-
-        let input_heartbeat_id_paragraph = Paragraph::new(self.input_heartbeat_id.clone())
-            .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
-            .style(
-                Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                    Color::Gray
-                } else if self.active_input == 3 {
-                    if self.input_heartbeat_id.is_empty() {
-                        Color::Blue
-                    } else if validate_u8_input(&self.input_heartbeat_id) {
-                        Color::Green
-                    } else {
-                        Color::Red
-                    }
-                } else {
-                    Color::White
-                }),
-            );
-        f.render_widget(input_heartbeat_id_paragraph, top_chunks[2]);
-
-        let include_system_id_paragraph = Paragraph::new(self.input_system_id_filter.clone())
-            .block(Block::default().borders(Borders::ALL).title("Sys ID"))
-            .style(
-                Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                    Color::Gray
-                } else if self.active_input == 4 {
-                    if self.input_system_id_filter.is_empty() {
-                        Color::Blue
-                    } else if validate_u8_input(&self.input_system_id_filter) {
-                        Color::Green
-                    } else {
-                        Color::Red
-                    }
-                } else {
-                    Color::White
-                }),
-            );
-        f.render_widget(include_system_id_paragraph, top_chunks[3]);
-
-        let include_component_id_paragraph = Paragraph::new(self.input_component_id_filter.clone())
-            .block(Block::default().borders(Borders::ALL).title("Comp ID"))
-            .style(
-                Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                    Color::Gray
-                } else if self.active_input == 5 {
-                    if self.input_component_id_filter.is_empty() {
-                        Color::Blue
-                    } else if validate_u8_input(&self.input_component_id_filter) {
-                        Color::Green
-                    } else {
-                        Color::Red
-                    }
-                } else {
-                    Color::White
-                }),
-            );
-        f.render_widget(include_component_id_paragraph, top_chunks[4]);
-
-        let table = self
-            .messages
-            .to_tui_table(self.current_listener_stop_signal.is_some());
-        let mut state = self.messages.state();
-
-        f.render_stateful_widget(table, middle_chunks[0], &mut state);
-
-        let selected_message_json = self
-            .messages
-            .get_selected_message_string()
-            .unwrap_or("No selected message".to_string());
-        let selected_message_paragraph = Paragraph::new(selected_message_json)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Selected Message"),
-            )
-            .style(
-                Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                    Color::LightBlue
-                } else {
-                    Color::Gray
-                }),
-            );
-        f.render_widget(selected_message_paragraph, selected_message_chunks[0]);
-
-        let (hz_history, current_hz) = self
-            .messages
-            .get_selected_message_frequency()
-            .unwrap_or((vec![], 0.1));
-
-        // Add a graph here
-        let history_data: Vec<(f64, f64)> = hz_history
-            .iter()
-            .enumerate()
-            .map(|(i, &value)| (i as f64, value as f64))
-            .collect();
-
-        let history_chart = Chart::new(vec![Dataset::default()
-            .marker(symbols::Marker::Dot)
-            .style(Style::default().fg(Color::Cyan))
-            .data(&history_data)])
-        .block(Block::default().borders(Borders::ALL).title("History"))
-        .style(
-            Style::default().fg(if self.current_listener_stop_signal.is_some() {
-                Color::LightBlue
-            } else {
-                Color::Gray
-            }),
-        )
-        .x_axis(
-            Axis::default()
-                .title("Time")
-                .bounds([0.0, history_data.len() as f64]),
-        )
-        .y_axis(
-            Axis::default()
-                .title("Frequency")
-                .bounds([current_hz * 0.9, current_hz * 1.1]),
-        );
-
-        f.render_widget(history_chart, selected_message_chunks[1]);
-
-        let logs_table = self.logs.to_tui_table();
-        let mut logs_state = TableState::default();
-        f.render_stateful_widget(logs_table, bottom_chunks[0], &mut logs_state);
-
-        let cheatsheet = Paragraph::new(
-            "q: Quit\n\
-            Enter: Start Listener\n\
-            Tab: Switch Input\n\
-            Up/Down: Navigate Messages\n\
-            Esc: Stop Listener\n\
-            Allowed connection address formats:udpin, udpout, tcpin, tcpout\n\
-            Allowed output file formats: *.txt\n\
-            Heartbeat ID: send heartbeat with id (0-255)\n\
-            Sys ID: filter messages by system id (0-255)\n\
-            Comp ID: filter messages by component id (0-255)
-            ",
-        )
-        .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
-        .style(Style::default().fg(Color::White));
-        f.render_widget(cheatsheet, bottom_chunks[1]);
-    }
-
+/// Handle key events
+impl App {
     fn handle_key_event_idle(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Char('q') => return true,
@@ -485,6 +265,250 @@ impl App {
         thread::spawn(move || {
             listener.listen();
         });
+    }
+}
+
+impl App {
+    fn draw_ui(&mut self, f: &mut ratatui::Frame) {
+        let size = f.area();
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Length(3), // Adjusted to ensure one line height
+                    Constraint::Percentage(75),
+                    Constraint::Percentage(15),
+                ]
+                .as_ref(),
+            )
+            .split(size);
+
+        let top_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(
+                [
+                    Constraint::Percentage(35),
+                    Constraint::Percentage(35),
+                    Constraint::Percentage(10),
+                    Constraint::Percentage(10),
+                    Constraint::Percentage(10),
+                ]
+                .as_ref(),
+            )
+            .split(chunks[0]);
+        let middle_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+            .split(chunks[1]);
+        let bottom_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+            .split(chunks[2]);
+
+        let selected_message_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+            .split(middle_chunks[1]);
+
+        f.render_widget(self.get_input_address_paragraph(), top_chunks[0]);
+        f.render_widget(self.get_input_output_file_paragraph(), top_chunks[1]);
+        f.render_widget(self.get_input_heartbeat_id_paragraph(), top_chunks[2]);
+        f.render_widget(self.get_input_system_id_paragraph(), top_chunks[3]);
+        f.render_widget(self.get_input_component_id_paragraph(), top_chunks[4]);
+
+        let table = self.get_messages_table();
+        let mut state = self.messages.state();
+        f.render_stateful_widget(table, middle_chunks[0], &mut state);
+
+        let selected_message_paragraph = self.get_selected_message_paragraph();
+        f.render_widget(selected_message_paragraph, selected_message_chunks[0]);
+
+        let data: Vec<(f64, f64)> = self
+            .messages
+            .get_selected_message_hz_history()
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (i as f64, v))
+            .collect();
+        let history_chart = self.get_history_chart(&data);
+        f.render_widget(history_chart, selected_message_chunks[1]);
+
+        let logs_table = self.get_logs_table();
+        let mut logs_state = TableState::default();
+        f.render_stateful_widget(logs_table, bottom_chunks[0], &mut logs_state);
+
+        let cheatsheet = self.get_cheatsheet_paragraph();
+        f.render_widget(cheatsheet, bottom_chunks[1]);
+    }
+
+    pub fn get_messages_table(&self) -> Table {
+        self.messages
+            .to_tui_table(self.current_listener_stop_signal.is_some())
+    }
+
+    pub fn get_selected_message_paragraph(&self) -> Paragraph {
+        let selected_message_json = self
+            .messages
+            .get_selected_message_string()
+            .unwrap_or("No selected message".to_string());
+        Paragraph::new(selected_message_json)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Selected Message"),
+            )
+            .style(
+                Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                    Color::LightBlue
+                } else {
+                    Color::Gray
+                }),
+            )
+    }
+
+    pub fn get_history_chart<'a>(&self, data: &'a [(f64, f64)]) -> Chart<'a> {
+        let dataset = Dataset::default()
+            .name("Hz History")
+            .marker(symbols::Marker::Dot)
+            .style(Style::default().fg(Color::Cyan))
+            .data(data);
+
+        Chart::new(vec![dataset])
+            .block(Block::default().borders(Borders::ALL).title("Hz History"))
+            .x_axis(
+                Axis::default()
+                    .title("Time")
+                    .style(Style::default().fg(Color::Gray)),
+            )
+            .y_axis(
+                Axis::default()
+                    .title("Hz")
+                    .style(Style::default().fg(Color::Gray)),
+            )
+    }
+
+    pub fn get_logs_table(&self) -> Table {
+        self.logs.to_tui_table()
+    }
+
+    pub fn get_cheatsheet_paragraph(&self) -> Paragraph {
+        Paragraph::new(
+            "q: Quit\n\
+            Enter: Start Listener\n\
+            Tab: Switch Input\n\
+            Up/Down: Navigate Messages\n\
+            Esc: Stop Listener\n\
+            Allowed connection address formats:udpin, udpout, tcpin, tcpout\n\
+            Allowed output file formats: *.txt\n\
+            Heartbeat ID: send heartbeat with id (0-255)\n\
+            Sys ID: filter messages by system id (0-255)\n\
+            Comp ID: filter messages by component id (0-255)
+            ",
+        )
+        .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
+        .style(Style::default().fg(Color::White))
+    }
+
+    pub fn get_input_address_paragraph(&self) -> Paragraph {
+        Paragraph::new(self.input_address.clone())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Connection Address"),
+            )
+            .style(
+                Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                    Color::Gray
+                } else if self.active_input == 1 {
+                    if validate_connection_address_input(&self.input_address) {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    }
+                } else {
+                    Color::White
+                }),
+            )
+    }
+
+    pub fn get_input_output_file_paragraph(&self) -> Paragraph {
+        Paragraph::new(self.input_output_file.clone())
+            .block(Block::default().borders(Borders::ALL).title("Output file"))
+            .style(
+                Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                    Color::Gray
+                } else if self.active_input == 2 {
+                    if self.input_output_file.is_empty() {
+                        Color::Blue
+                    } else if validate_output_file_input(&self.input_output_file) {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    }
+                } else {
+                    Color::White
+                }),
+            )
+    }
+
+    pub fn get_input_heartbeat_id_paragraph(&self) -> Paragraph {
+        Paragraph::new(self.input_heartbeat_id.clone())
+            .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
+            .style(
+                Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                    Color::Gray
+                } else if self.active_input == 3 {
+                    if self.input_heartbeat_id.is_empty() {
+                        Color::Blue
+                    } else if validate_u8_input(&self.input_heartbeat_id) {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    }
+                } else {
+                    Color::White
+                }),
+            )
+    }
+
+    pub fn get_input_system_id_paragraph(&self) -> Paragraph {
+        Paragraph::new(self.input_system_id_filter.clone())
+            .block(Block::default().borders(Borders::ALL).title("Sys ID"))
+            .style(
+                Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                    Color::Gray
+                } else if self.active_input == 4 {
+                    if self.input_system_id_filter.is_empty() {
+                        Color::Blue
+                    } else if validate_u8_input(&self.input_system_id_filter) {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    }
+                } else {
+                    Color::White
+                }),
+            )
+    }
+
+    pub fn get_input_component_id_paragraph(&self) -> Paragraph {
+        Paragraph::new(self.input_component_id_filter.clone())
+            .block(Block::default().borders(Borders::ALL).title("Comp ID"))
+            .style(
+                Style::default().fg(if self.current_listener_stop_signal.is_some() {
+                    Color::Gray
+                } else if self.active_input == 5 {
+                    if self.input_component_id_filter.is_empty() {
+                        Color::Blue
+                    } else if validate_u8_input(&self.input_component_id_filter) {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    }
+                } else {
+                    Color::White
+                }),
+            )
     }
 }
 

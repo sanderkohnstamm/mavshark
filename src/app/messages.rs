@@ -62,12 +62,18 @@ impl Messages {
         Some(pretty_print_json(&last_message))
     }
 
-    pub fn get_selected_message_frequency(&self) -> Option<(Vec<f64>, f64)> {
+    pub fn get_selected_message_hz_history(&self) -> Vec<f64> {
         let message_counts = self.message_counts.lock().unwrap();
-        let selected = self.state.selected()?;
-        let key = message_counts.keys().nth(selected)?;
-        let window = message_counts.get(key)?;
-        Some((window.get_history(), window.get_hz()))
+        let Some(selected) = self.state.selected() else {
+            return vec![];
+        };
+        let Some(key) = message_counts.keys().nth(selected) else {
+            return vec![];
+        };
+        let Some(window) = message_counts.get(key) else {
+            return vec![];
+        };
+        window.get_history()
     }
 
     pub fn select_down(&mut self) {
