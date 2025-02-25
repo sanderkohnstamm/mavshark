@@ -6,11 +6,11 @@ use crossterm::{
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{
     io,
     sync::{Arc, Mutex},
 };
-use tui::{backend::CrosstermBackend, Terminal};
 
 fn main() {
     let monitor = Arc::new(Mutex::new(App::new()));

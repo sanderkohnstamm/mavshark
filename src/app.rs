@@ -8,20 +8,20 @@ use listener::Listener;
 use logs::Logs;
 use mavlink::common::MavMessage;
 use messages::Messages;
-use std::io;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use tui::symbols;
-use tui::widgets::{Axis, Chart, Dataset, TableState};
-use tui::{
+use ratatui::symbols;
+use ratatui::widgets::{Axis, Chart, Dataset, TableState};
+use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
+use std::io;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 pub enum LogLevel {
     Info,
@@ -59,7 +59,7 @@ impl App {
 
         loop {
             terminal.draw(|f| {
-                let size = f.size();
+                let size = f.area();
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints(
@@ -99,7 +99,7 @@ impl App {
                     .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                     .split(middle_chunks[1]);
 
-                let input_address_paragraph = Paragraph::new(input_address.as_ref())
+                let input_address_paragraph = Paragraph::new(input_address.clone())
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
@@ -120,7 +120,7 @@ impl App {
                     );
                 f.render_widget(input_address_paragraph, top_chunks[0]);
 
-                let input_output_file_paragraph = Paragraph::new(input_output_file.as_ref())
+                let input_output_file_paragraph = Paragraph::new(input_output_file.clone())
                     .block(Block::default().borders(Borders::ALL).title("Output file"))
                     .style(
                         Style::default().fg(if self.current_listener_stop_signal.is_some() {
@@ -139,7 +139,7 @@ impl App {
                     );
                 f.render_widget(input_output_file_paragraph, top_chunks[1]);
 
-                let input_heartbeat_id_paragraph = Paragraph::new(input_heartbeat_id.as_ref())
+                let input_heartbeat_id_paragraph = Paragraph::new(input_heartbeat_id.clone())
                     .block(Block::default().borders(Borders::ALL).title("Heartbeat ID"))
                     .style(
                         Style::default().fg(if self.current_listener_stop_signal.is_some() {
@@ -158,7 +158,7 @@ impl App {
                     );
                 f.render_widget(input_heartbeat_id_paragraph, top_chunks[2]);
 
-                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.as_ref())
+                let include_system_id_paragraph = Paragraph::new(input_system_id_filter.clone())
                     .block(Block::default().borders(Borders::ALL).title("Sys ID"))
                     .style(
                         Style::default().fg(if self.current_listener_stop_signal.is_some() {
@@ -178,7 +178,7 @@ impl App {
                 f.render_widget(include_system_id_paragraph, top_chunks[3]);
 
                 let include_component_id_paragraph =
-                    Paragraph::new(input_component_id_filter.as_ref())
+                    Paragraph::new(input_component_id_filter.clone())
                         .block(Block::default().borders(Borders::ALL).title("Comp ID"))
                         .style(Style::default().fg(
                             if self.current_listener_stop_signal.is_some() {
@@ -208,7 +208,7 @@ impl App {
                     .messages
                     .get_selected_message_string()
                     .unwrap_or("No selected message".to_string());
-                let selected_message_paragraph = Paragraph::new(selected_message_json.as_ref())
+                let selected_message_paragraph = Paragraph::new(selected_message_json)
                     .block(
                         Block::default()
                             .borders(Borders::ALL)

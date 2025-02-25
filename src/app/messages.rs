@@ -9,12 +9,12 @@ use std::{
 };
 
 use mavlink::{common::MavMessage, MavHeader};
-use serde_json::Value;
-use tui::{
+use ratatui::{
     layout::Constraint,
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Cell, Row, Table, TableState},
 };
+use serde_json::Value;
 
 use super::rolling_window::RollingWindow;
 
@@ -125,25 +125,27 @@ impl Messages {
                     Row::new(cells).height(height as u16)
                 });
 
-        let table = Table::new(rows)
-            .header(header)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Message Counts")
-                    .border_style(Style::default().fg(if active {
-                        Color::LightBlue
-                    } else {
-                        Color::Gray
-                    })),
-            )
-            .highlight_style(selected_style)
-            .widths(&[
+        let table = Table::new(
+            rows,
+            &[
                 Constraint::Percentage(5),
                 Constraint::Percentage(5),
                 Constraint::Percentage(80),
                 Constraint::Percentage(10),
-            ]);
+            ],
+        )
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Message Counts")
+                .border_style(Style::default().fg(if active {
+                    Color::LightBlue
+                } else {
+                    Color::Gray
+                })),
+        )
+        .row_highlight_style(selected_style);
         table
     }
 

@@ -1,4 +1,11 @@
 use chrono::DateTime;
+use ratatui::widgets::Block;
+use ratatui::{
+    layout::Constraint,
+    style::{Color, Style},
+    text::Span,
+    widgets::{Borders, Row, Table},
+};
 use std::{
     sync::{
         mpsc::{self, Receiver},
@@ -6,13 +13,6 @@ use std::{
     },
     time::{Instant, SystemTime},
 };
-use tui::{
-    layout::Constraint,
-    style::{Color, Style},
-    text::Span,
-    widgets::{Borders, Row, Table},
-};
-use tui::{text::Spans, widgets::Block};
 
 use super::LogLevel;
 
@@ -76,15 +76,17 @@ impl Logs {
                 };
 
                 Row::new(vec![
-                    Spans::from(formatted_time),
-                    Spans::from(Span::styled(msg.clone(), Style::default().fg(color))),
+                    Span::from(formatted_time),
+                    Span::from(Span::styled(msg.clone(), Style::default().fg(color))),
                 ])
             })
             .collect();
 
-        Table::new(rows)
-            .header(Row::new(vec![Spans::from("Timestamp"), Spans::from("Log")]))
-            .block(Block::default().borders(Borders::ALL).title("Logs"))
-            .widths(&[Constraint::Percentage(20), Constraint::Percentage(80)])
+        Table::new(
+            rows,
+            &[Constraint::Percentage(20), Constraint::Percentage(80)],
+        )
+        .header(Row::new(vec![Span::from("Timestamp"), Span::from("Log")]))
+        .block(Block::default().borders(Borders::ALL).title("Logs"))
     }
 }
