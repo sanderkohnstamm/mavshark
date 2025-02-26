@@ -18,18 +18,18 @@ use serde_json::Value;
 
 use super::rolling_window::RollingWindow;
 
-pub struct Messages {
+pub struct IncomingMessages {
     message_counts: Arc<Mutex<HashMap<(u8, u8, String), RollingWindow>>>,
     last_messages: Arc<Mutex<HashMap<(u8, u8, String), String>>>,
     message_tx: mpsc::Sender<(MavHeader, MavMessage)>,
     state: TableState,
 }
 
-impl Messages {
-    pub fn new() -> Messages {
+impl IncomingMessages {
+    pub fn new() -> IncomingMessages {
         let (message_tx, message_rx) = mpsc::channel();
 
-        let messages = Messages {
+        let messages = IncomingMessages {
             message_counts: Arc::new(Mutex::new(HashMap::new())),
             last_messages: Arc::new(Mutex::new(HashMap::new())),
             message_tx,
@@ -108,7 +108,7 @@ impl Messages {
         self.state.select(Some(i));
     }
 
-    pub fn to_tui_table(&self, active: bool) -> Table {
+    pub fn to_tui_table(&self, active: bool, selected: bool) -> Table {
         let selected_style = Style::default().add_modifier(Modifier::REVERSED);
         let header_cells = ["System ID", "Component ID", "Message Type", "Hz"]
             .iter()
@@ -146,7 +146,11 @@ impl Messages {
                 .borders(Borders::ALL)
                 .title("Message Counts")
                 .border_style(Style::default().fg(if active {
-                    Color::LightBlue
+                    if selected {
+                        Color::Green
+                    } else {
+                        Color::LightCyan
+                    }
                 } else {
                     Color::Gray
                 })),

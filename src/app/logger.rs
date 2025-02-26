@@ -14,27 +14,27 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-use super::LogLevel;
+pub enum LogLevel {
+    Info,
+    Error,
+}
 
-pub struct Logs {
+#[derive(Clone)]
+pub struct Logger {
     log_messages: Arc<Mutex<Vec<(Instant, LogLevel, String)>>>,
     logs_tx: mpsc::Sender<(Instant, LogLevel, String)>,
 }
 
-impl Logs {
+impl Logger {
     pub fn new() -> Self {
         let (logs_tx, logs_rx) = mpsc::channel();
 
-        let logs = Logs {
+        let logs = Logger {
             log_messages: Arc::new(Mutex::new(Vec::new())),
             logs_tx,
         };
         logs.spawn_update_thread(logs_rx);
         logs
-    }
-
-    pub fn logs_tx(&self) -> mpsc::Sender<(Instant, LogLevel, String)> {
-        self.logs_tx.clone()
     }
 
     fn spawn_update_thread(&self, logs_rx: Receiver<(Instant, LogLevel, String)>) {
