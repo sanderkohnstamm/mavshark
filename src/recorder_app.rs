@@ -172,8 +172,8 @@ impl RecorderApp {
         let stop_signal = Arc::new(AtomicBool::new(false));
         self.current_process_stop_signal = Some(stop_signal.clone());
 
-        if let Some(component_id) = heartbeat_id {
-            self.start_heartbeat_sender(connection.clone(), 0, component_id, stop_signal.clone());
+        if let Some(heartbeat_id) = heartbeat_id {
+            self.start_heartbeat_sender(connection.clone(), heartbeat_id, 0, stop_signal.clone());
         }
 
         self.start_listener(
