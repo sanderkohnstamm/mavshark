@@ -16,6 +16,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::app::utils::{
+    validate_connection_address_input, validate_file_input, validate_u8_input, InputField,
+    RECORDER_CHEATSHEET,
+};
 use crate::app::{IncomingMessages, Logger, MavlinkListener, MavlinkSender};
 
 pub struct RecorderApp {
@@ -27,7 +31,7 @@ pub struct RecorderApp {
     input_heartbeat_id: String,
     input_system_id_filter: String,
     input_component_id_filter: String,
-    active_input: u8,
+    active_input: InputField,
 }
 
 impl RecorderApp {
@@ -44,7 +48,7 @@ impl RecorderApp {
             input_heartbeat_id: String::new(),
             input_system_id_filter: String::new(),
             input_component_id_filter: String::new(),
-            active_input: 1,
+            active_input: InputField::Address,
         }
     }
 
@@ -87,10 +91,12 @@ impl RecorderApp {
                 self.handle_enter_key();
             }
             KeyCode::Tab => {
-                self.active_input = if self.active_input == 5 {
-                    1
-                } else {
-                    self.active_input + 1
+                self.active_input = match self.active_input {
+                    InputField::Address => InputField::File,
+                    InputField::File => InputField::HeartbeatId,
+                    InputField::HeartbeatId => InputField::SystemId,
+                    InputField::SystemId => InputField::ComponentId,
+                    InputField::ComponentId => InputField::Address,
                 };
             }
             KeyCode::Down => self.messages.select_down(),
@@ -187,43 +193,41 @@ impl RecorderApp {
 
     fn handle_backspace_key(&mut self) {
         match self.active_input {
-            1 => {
+            InputField::Address => {
                 self.input_address.pop();
             }
-            2 => {
+            InputField::File => {
                 self.input_output_file.pop();
             }
-            3 => {
+            InputField::HeartbeatId => {
                 self.input_heartbeat_id.pop();
             }
-            4 => {
+            InputField::SystemId => {
                 self.input_system_id_filter.pop();
             }
-            5 => {
+            InputField::ComponentId => {
                 self.input_component_id_filter.pop();
             }
-            _ => {}
         }
     }
 
     fn handle_char_input(&mut self, c: char) {
         match self.active_input {
-            1 => {
+            InputField::Address => {
                 self.input_address.push(c);
             }
-            2 => {
+            InputField::File => {
                 self.input_output_file.push(c);
             }
-            3 => {
+            InputField::HeartbeatId => {
                 self.input_heartbeat_id.push(c);
             }
-            4 => {
+            InputField::SystemId => {
                 self.input_system_id_filter.push(c);
             }
-            5 => {
+            InputField::ComponentId => {
                 self.input_component_id_filter.push(c);
             }
-            _ => {}
         }
     }
 
@@ -404,21 +408,9 @@ impl RecorderApp {
     }
 
     pub fn get_cheatsheet_paragraph(&self) -> Paragraph {
-        Paragraph::new(
-            "q: Quit\n\
-            Enter: Start Listener\n\
-            Tab: Switch Input\n\
-            Up/Down: Navigate Messages\n\
-            Esc: Stop Listener\n\
-            Allowed connection address formats:udpin, udpout, tcpin, tcpout\n\
-            Allowed output file formats: *.txt\n\
-            Heartbeat ID: send heartbeat with id (0-255)\n\
-            Sys ID: filter messages by system id (0-255)\n\
-            Comp ID: filter messages by component id (0-255)
-            ",
-        )
-        .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
-        .style(Style::default().fg(Color::White))
+        Paragraph::new(RECORDER_CHEATSHEET)
+            .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
+            .style(Style::default().fg(Color::White))
     }
 
     pub fn get_input_address_paragraph(&self) -> Paragraph {
@@ -431,7 +423,7 @@ impl RecorderApp {
             .style(
                 Style::default().fg(if self.current_process_stop_signal.is_some() {
                     Color::Gray
-                } else if self.active_input == 1 {
+                } else if self.active_input == InputField::Address {
                     if validate_connection_address_input(&self.input_address) {
                         Color::Green
                     } else {
@@ -449,10 +441,10 @@ impl RecorderApp {
             .style(
                 Style::default().fg(if self.current_process_stop_signal.is_some() {
                     Color::Gray
-                } else if self.active_input == 2 {
+                } else if self.active_input == InputField::File {
                     if self.input_output_file.is_empty() {
                         Color::Blue
-                    } else if validate_output_file_input(&self.input_output_file) {
+                    } else if validate_file_input(&self.input_output_file) {
                         Color::Green
                     } else {
                         Color::Red
@@ -469,7 +461,7 @@ impl RecorderApp {
             .style(
                 Style::default().fg(if self.current_process_stop_signal.is_some() {
                     Color::Gray
-                } else if self.active_input == 3 {
+                } else if self.active_input == InputField::HeartbeatId {
                     if self.input_heartbeat_id.is_empty() {
                         Color::Blue
                     } else if validate_u8_input(&self.input_heartbeat_id) {
@@ -489,7 +481,7 @@ impl RecorderApp {
             .style(
                 Style::default().fg(if self.current_process_stop_signal.is_some() {
                     Color::Gray
-                } else if self.active_input == 4 {
+                } else if self.active_input == InputField::SystemId {
                     if self.input_system_id_filter.is_empty() {
                         Color::Blue
                     } else if validate_u8_input(&self.input_system_id_filter) {
@@ -509,7 +501,7 @@ impl RecorderApp {
             .style(
                 Style::default().fg(if self.current_process_stop_signal.is_some() {
                     Color::Gray
-                } else if self.active_input == 5 {
+                } else if self.active_input == InputField::ComponentId {
                     if self.input_component_id_filter.is_empty() {
                         Color::Blue
                     } else if validate_u8_input(&self.input_component_id_filter) {
@@ -522,40 +514,4 @@ impl RecorderApp {
                 }),
             )
     }
-}
-
-fn validate_u8_input(input: &str) -> bool {
-    input.parse::<u8>().is_ok()
-}
-
-fn validate_output_file_input(input: &str) -> bool {
-    input.ends_with(".txt")
-        && input
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '/')
-}
-
-fn validate_connection_address_input(input: &str) -> bool {
-    // Basic validation for MAVLink connection address (e.g., "udpin:0.0.0.0:14550")
-    let parts: Vec<&str> = input.split(':').collect();
-    if parts.len() != 3 {
-        return false;
-    }
-    let protocol = parts[0];
-    let ip = parts[1];
-    let port = parts[2];
-
-    if protocol != "udpin" && protocol != "udpout" && protocol != "tcpin" && protocol != "tcpout" {
-        return false;
-    }
-
-    if !ip.parse::<std::net::Ipv4Addr>().is_ok() {
-        return false;
-    }
-
-    if !port.parse::<u16>().is_ok() {
-        return false;
-    }
-
-    true
 }

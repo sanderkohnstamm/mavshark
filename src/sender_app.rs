@@ -15,6 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::app::utils::{
+    validate_connection_address_input, validate_file_input, validate_u8_input, InputField,
+    SENDER_CHEATSHEET,
+};
 use crate::app::{FileMessages, Logger, MavlinkSender};
 
 pub struct SenderApp {
@@ -29,15 +33,6 @@ pub struct SenderApp {
     input_component_id_override: String,
     active_input: InputField,
     selected_file_message: Option<String>,
-}
-
-#[derive(PartialEq)]
-enum InputField {
-    Address,
-    File,
-    HeartbeatId,
-    SystemId,
-    ComponentId,
 }
 
 impl SenderApp {
@@ -416,20 +411,9 @@ impl SenderApp {
     }
 
     pub fn get_cheatsheet_paragraph(&self) -> Paragraph {
-        Paragraph::new(
-            "q: Quit\n\
-            Enter: Start connection or send message\n\
-            Tab: Switch Input\n\
-            Up/Down/Right/Left: Navigate Messages\n\
-            Esc: Stop Listener\n\
-            Allowed connection address formats:udpin, udpout, tcpin, tcpout\n\
-            Allowed input file formats: *.txt\n\
-            Heartbeat ID: send heartbeat with id (0-255)\n\
-            Sys/Comp ID: overrides for message sending (0-255)\n\
-            ",
-        )
-        .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
-        .style(Style::default().fg(Color::White))
+        Paragraph::new(SENDER_CHEATSHEET)
+            .block(Block::default().borders(Borders::ALL).title("Cheatsheet"))
+            .style(Style::default().fg(Color::White))
     }
 
     pub fn get_input_address_paragraph(&self) -> Paragraph {
@@ -533,40 +517,4 @@ impl SenderApp {
                 }),
             )
     }
-}
-
-fn validate_u8_input(input: &str) -> bool {
-    input.parse::<u8>().is_ok()
-}
-
-fn validate_file_input(input: &str) -> bool {
-    input.ends_with(".txt")
-        && input
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '/')
-}
-
-fn validate_connection_address_input(input: &str) -> bool {
-    // Basic validation for MAVLink connection address (e.g., "udpin:0.0.0.0:14550")
-    let parts: Vec<&str> = input.split(':').collect();
-    if parts.len() != 3 {
-        return false;
-    }
-    let protocol = parts[0];
-    let ip = parts[1];
-    let port = parts[2];
-
-    if protocol != "udpin" && protocol != "udpout" && protocol != "tcpin" && protocol != "tcpout" {
-        return false;
-    }
-
-    if !ip.parse::<std::net::Ipv4Addr>().is_ok() {
-        return false;
-    }
-
-    if !port.parse::<u16>().is_ok() {
-        return false;
-    }
-
-    true
 }
