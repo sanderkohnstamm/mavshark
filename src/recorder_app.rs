@@ -35,7 +35,13 @@ pub struct RecorderApp {
 }
 
 impl RecorderApp {
-    pub fn new() -> Self {
+    pub fn new(
+        connection_address: Option<String>,
+        output_file: Option<String>,
+        heartbeat_id: Option<String>,
+        system_id_filter: Option<String>,
+        component_id_filter: Option<String>,
+    ) -> Self {
         let messages = IncomingMessages::new();
         let logs = Logger::new();
 
@@ -43,11 +49,11 @@ impl RecorderApp {
             messages,
             logger: logs,
             current_process_stop_signal: None,
-            input_address: "udpin:0.0.0.0:14550".to_string(),
-            input_output_file: "output.txt".to_string(),
-            input_heartbeat_id: String::new(),
-            input_system_id_filter: String::new(),
-            input_component_id_filter: String::new(),
+            input_address: connection_address.unwrap_or("udpin:0.0.0.0:14550".to_string()),
+            input_output_file: output_file.unwrap_or("output.txt".to_string()),
+            input_heartbeat_id: heartbeat_id.unwrap_or_default(),
+            input_system_id_filter: system_id_filter.unwrap_or_default(),
+            input_component_id_filter: component_id_filter.unwrap_or_default(),
             active_input: InputField::Address,
         }
     }

@@ -36,7 +36,13 @@ pub struct SenderApp {
 }
 
 impl SenderApp {
-    pub fn new() -> Self {
+    pub fn new(
+        connection_address: Option<String>,
+        input_file: Option<String>,
+        heartbeat_id: Option<String>,
+        system_id_override: Option<String>,
+        component_id_override: Option<String>,
+    ) -> Self {
         let messages = FileMessages::new();
         let logs = Logger::new();
 
@@ -45,11 +51,11 @@ impl SenderApp {
             logger: logs,
             mavlink_sender: None,
             current_process_stop_signal: None,
-            input_address: "udpin:0.0.0.0:14550".to_string(),
-            input_file: "output.txt".to_string(),
-            input_heartbeat_id: String::new(),
-            input_system_id_override: String::new(),
-            input_component_id_override: String::new(),
+            input_address: connection_address.unwrap_or("udpin:0.0.0.0:14550".to_string()),
+            input_file: input_file.unwrap_or("output.txt".to_string()),
+            input_heartbeat_id: heartbeat_id.unwrap_or_default(),
+            input_system_id_override: system_id_override.unwrap_or_default(),
+            input_component_id_override: component_id_override.unwrap_or_default(),
             active_input: InputField::Address,
             selected_file_message: None,
         }
