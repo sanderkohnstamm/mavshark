@@ -1,5 +1,5 @@
+use chrono::Local;
 use mavlink::{common::MavMessage, MavConnection, MavHeader};
-
 use serde_json::json;
 use std::sync::{atomic::Ordering, mpsc::Sender};
 use std::{
@@ -108,10 +108,13 @@ impl MavlinkListener {
         if let Some(mut writer) = output_writer {
             let message_json = serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
 
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
             let message_content = json!({
                 "system_id": header.system_id,
                 "component_id": header.component_id,
                 "message": message_json,
+                "timestamp": timestamp,
             })
             .to_string();
 
