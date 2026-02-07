@@ -1,185 +1,177 @@
 mod app;
-mod recorder_app;
-mod sender_app;
+mod mavlink_io;
+mod record;
+mod replay;
+mod ui;
 
+use std::fs::File;
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
-use recorder_app::RecorderApp;
-use sender_app::SenderApp;
-use std::{
-    io,
-    sync::{Arc, Mutex},
-};
+use log::LevelFilter;
+use ratatui::prelude::*;
+use simplelog::{Config as LogConfig, WriteLogger};
+
+use app::App;
+use record::{RecordFilter, Recorder};
 
 #[derive(Parser)]
-#[command(name = "mavshark")]
-#[command(about = "A MAVLink monitoring and sending tool", long_about = None)]
+#[command(name = "mavshark", version, about = "MAVLink message inspector")]
 struct Cli {
+    /// Connection URI (e.g. udpin:0.0.0.0:14550, tcpout:127.0.0.1:5760, serial:/dev/ttyUSB0:57600)
+    #[arg(default_value = "udpin:0.0.0.0:14550")]
+    uri: String,
+
+    /// Send heartbeats with this system ID
+    #[arg(long)]
+    heartbeat_sys_id: Option<u8>,
+
+    /// Heartbeat component ID (used with --heartbeat-sys-id)
+    #[arg(long, default_value_t = 1)]
+    heartbeat_comp_id: u8,
+
+    /// Log file path
+    #[arg(long, default_value = "mavshark.log")]
+    log_file: String,
+
+    /// Record messages to a JSON Lines file
+    #[arg(long)]
+    record: Option<String>,
+
+    /// Comma-separated message names or numeric IDs to record (default: all)
+    #[arg(long)]
+    record_filter: Option<String>,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Run the recorder app", alias = "r")]
-    Recorder {
-        #[arg(
-            short,
-            long,
-            value_name = "ADDRESS",
-            help = "Prefilled mavlink connection address"
-        )]
-        address: Option<String>,
-        #[arg(
-            short,
-            long,
-            value_name = "OUTPUT_FILE",
-            help = "File for logging messages output"
-        )]
-        output_file: Option<String>,
-        #[arg(
-            short = 'b',
-            long,
-            value_name = "HEARTBEAT_ID",
-            help = "System id to send heartbeats with"
-        )]
-        heartbeat_id: Option<String>,
-        #[arg(
-            short,
-            long,
-            value_name = "SYSTEM_ID_FILTER",
-            help = "Filter messages on this system id"
-        )]
-        system_id_filter: Option<String>,
-        #[arg(
-            short,
-            long,
-            value_name = "COMPONENT_ID_FILTER",
-            help = "Filter messages on this component id"
-        )]
-        component_id_filter: Option<String>,
-    },
-    #[command(about = "Run the sender app", alias = "s")]
-    Sender {
-        #[arg(
-            short,
-            long,
-            value_name = "ADDRESS",
-            help = "Prefilled mavlink connection address"
-        )]
-        address: Option<String>,
-        #[arg(
-            short,
-            long,
-            value_name = "INPUT_FILE",
-            help = "Parse this file for recorded messages"
-        )]
-        input_file: Option<String>,
-        #[arg(
-            short = 'b',
-            long,
-            value_name = "HEARTBEAT_ID",
-            help = "System id to send heartbeats with"
-        )]
-        heartbeat_id: Option<String>,
-        #[arg(
-            short,
-            long,
-            value_name = "SYSTEM_ID_OVERRIDE",
-            help = "Send messages with this system id"
-        )]
-        system_id_override: Option<String>,
-        #[arg(
-            short,
-            long,
-            value_name = "COMPONENT_ID_OVERRIDE",
-            help = "Send messages with this component id"
-        )]
-        component_id_override: Option<String>,
+    /// Open a recorded JSON Lines file in the replay TUI
+    Replay {
+        /// Path to the JSON Lines recording file
+        file: String,
     },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Recorder {
-            address,
-            output_file,
-            heartbeat_id,
-            system_id_filter,
-            component_id_filter,
-        } => run_app(RecorderApp::new(
-            address.clone(),
-            output_file.clone(),
-            heartbeat_id.clone(),
-            system_id_filter.clone(),
-            component_id_filter.clone(),
-        )),
-        Commands::Sender {
-            address,
-            input_file,
-            heartbeat_id,
-            system_id_override,
-            component_id_override,
-        } => run_app(SenderApp::new(
-            address.clone(),
-            input_file.clone(),
-            heartbeat_id.clone(),
-            system_id_override.clone(),
-            component_id_override.clone(),
-        )),
+    // Replay mode — no logging, no connection
+    if let Some(Commands::Replay { file }) = cli.command {
+        return replay::run_replay(&file);
     }
-}
 
-fn run_app<T: App>(app: T) {
-    let app = Arc::new(Mutex::new(app));
-    enable_raw_mode().expect("Failed to enable raw mode");
+    // File logging (keeps logs out of the TUI)
+    let log_file = File::create(&cli.log_file)?;
+    WriteLogger::init(LevelFilter::Info, LogConfig::default(), log_file)?;
+    log::info!("mavshark starting, connecting to {}", cli.uri);
+
+    // Connect MAVLink
+    let conn = mavlink::connect::<mavlink::ardupilotmega::MavMessage>(&cli.uri)
+        .map_err(|e| anyhow::anyhow!("Failed to connect to {}: {}", cli.uri, e))?;
+    let conn = Arc::new(conn);
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    // Listener thread
+    let listener_conn = conn.clone();
+    let listener_stop = stop.clone();
+    std::thread::spawn(move || {
+        mavlink_io::listener_loop(listener_conn, tx, listener_stop);
+    });
+
+    // Heartbeat thread (optional)
+    let heartbeat_handle = cli.heartbeat_sys_id.map(|sys_id| {
+        let hb_conn = conn.clone();
+        let hb_stop = stop.clone();
+        let comp_id = cli.heartbeat_comp_id;
+        std::thread::spawn(move || {
+            mavlink_io::heartbeat_loop(hb_conn, sys_id, comp_id, hb_stop);
+        })
+    });
+
+    // Set up recorder (optional)
+    let mut recorder = match &cli.record {
+        Some(path) => {
+            let filter = RecordFilter::new(cli.record_filter.as_deref());
+            let r = Recorder::new(path, filter)?;
+            log::info!("Recording to {}", path);
+            Some(r)
+        }
+        None => None,
+    };
+
+    // Restore terminal on panic
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        original_hook(info);
+    }));
+
+    // Setup terminal
+    enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
-        .expect("Failed to enter alternate screen and enable mouse capture");
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal: Terminal<CrosstermBackend<io::Stdout>> =
-        Terminal::new(backend).expect("Failed to create terminal");
+    let mut terminal = Terminal::new(backend)?;
 
-    if let Err(e) = app.lock().unwrap().run(&mut terminal) {
-        eprintln!("Error: {}", e);
+    // Run app
+    let heartbeat_info = cli.heartbeat_sys_id.map(|s| (s, cli.heartbeat_comp_id));
+    let mut app = App::new(cli.uri.clone(), heartbeat_info);
+    let result = run_app(&mut terminal, &mut app, rx, &mut recorder);
+
+    // Cleanup
+    stop.store(true, Ordering::Relaxed);
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    if let Some(h) = heartbeat_handle {
+        let _ = h.join();
     }
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )
-    .expect("Failed to leave alternate screen and disable mouse capture");
-    disable_raw_mode().expect("Failed to disable raw mode");
+
+    result
 }
 
-trait App {
-    fn run(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> Result<(), io::Error>;
-}
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    rx: std::sync::mpsc::Receiver<mavlink_io::ReceivedMessage>,
+    recorder: &mut Option<Recorder>,
+) -> Result<()> {
+    loop {
+        while let Ok(msg) = rx.try_recv() {
+            if let Some(rec) = recorder.as_mut() {
+                rec.record(&msg);
+            }
+            app.on_message(msg);
+        }
 
-impl App for RecorderApp {
-    fn run(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> Result<(), io::Error> {
-        RecorderApp::run(self, terminal)
-    }
-}
+        if let Some(rec) = recorder.as_mut() {
+            rec.flush();
+        }
 
-impl App for SenderApp {
-    fn run(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> Result<(), io::Error> {
-        SenderApp::run(self, terminal)
+        app.tick();
+        terminal.draw(|f| ui::draw(f, app))?;
+
+        if event::poll(std::time::Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press && app.on_key(key) {
+                    return Ok(());
+                }
+            }
+        }
     }
 }

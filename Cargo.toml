@@ -1,27 +1,27 @@
 [package]
 name = "mavshark"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Sander Kohnstamm <sanderkohnstamm@gmail.com>"]
 edition = "2021"
-description = "MAVLink recorder and replayer CLI"
+description = "MAVLink message inspector TUI"
 license = "MIT"
 repository = "https://github.com/sanderkohnstamm/mavshark"
 homepage = "https://github.com/sanderkohnstamm/mavshark"
-documentation = "https://docs.rs/mavshark"
 readme = "README.md"
-keywords = ["mavlink", "cli", "drone"]
+keywords = ["mavlink", "cli", "drone", "tui"]
 categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
-chrono = "0.4.39"
-clap = { version = "4.5.30", features = ["derive"] }
-crossterm = "0.28.1"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+log = "0.4"
 mavlink = { version = "0.13", features = [
-    "common",
+    "ardupilotmega",
     "emit-extensions",
-    "format-generated-code",
 ] }
-ratatui = "0.29.0"
-serde = { version = "1.0.218", features = ["derive"] }
-serde_json = "1.0.139"
-termimad = "0.31.2"
+ratatui = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+simplelog = "0.12"
