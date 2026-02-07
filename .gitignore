@@ -1,3 +1,5 @@
 target
 *.txt
 *.bin
+*.jsonl
+*.log

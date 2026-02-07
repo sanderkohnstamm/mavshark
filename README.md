@@ -1,67 +1,85 @@
 # **MAVSHARK** 🦈
 
-_A lightweight CLI tool for recording and replaying to MAVLink messages._
+_A lightweight TUI tool for inspecting, recording, and replaying MAVLink messages._
 
 ## **Installation**
-
-### **1. Install via Cargo**
-
-```sh
-cargo install --path .
-```
-
-Or
 
 ```sh
 cargo install mavshark
 ```
 
+Or build from source:
+
+```sh
+cargo install --path .
+```
+
 ## **Usage**
 
-### **Basic Commands**
+### Live inspection
+
+Connect and inspect MAVLink traffic in a terminal UI:
 
 ```sh
-mavshark
+mavshark                                  # default: udpin:0.0.0.0:14550
+mavshark udpout:127.0.0.1:14550
+mavshark tcpout:127.0.0.1:5760
+mavshark serial:/dev/ttyUSB0:57600
 ```
 
+### Recording
 
-## Clarifications
-
-#### Why a heartbeat
-
-Mavrouter will only route traffic with a header.system_id to a connection that is sending messages with that system_id. So sending the same heartbeat as a receiving system_id will allow for sniffing all their incoming messages. 
-
-Note that all messages from the drone get sent towards the connection untill mavrouter correctly registers the connection as the drones group when sending heartbeats with the drones id. This takes some seconds. 
-
-Also, if SnifferSysId is set in mavrouter and a connection sends a heartbeat with that system_id, that connection will receive all traffic for all system ids. This is the recommended way to listen to messages, as sending a heartbeat to mimic another system id might have unexpected side effects in mavrouter. This can be done as follows:
-```sh
-SnifferSysId=<ID>
-```
-under general in the .conf file or
+Record messages to a JSON Lines file while inspecting:
 
 ```sh
---sniffer <ID>
+mavshark --record flight.jsonl
+mavshark --record flight.jsonl --record-filter HEARTBEAT,ATTITUDE
+mavshark --record flight.jsonl --record-filter 0,30
 ```
 
-in the command.
+`--record-filter` accepts comma-separated message names or numeric IDs. Omit it to record everything.
 
-#### Why output to binary or .txt
+### Replay
 
-The mavlink connection can also be made on .bin files, all the messages are then read and parsed correctly. This happens almost instantainuously, so would not make sense to attempt to replay this. 
+Open a recorded file in the replay TUI:
 
-For the replay functionality, i have added the regular output functionality that also logs the timings in between. This way, whilst replaying certain sets of commands, timing can be easily managed.
+```sh
+mavshark replay flight.jsonl
+```
 
+### Heartbeat
 
-#### Which connection types
-Rust mavlink is used, which allows for the following connection types:
+Send heartbeats with a specific system ID so mavrouter routes traffic to your connection:
 
-tcpin:<addr>:<port> to create a TCP server, listening for incoming connections
-tcpout:<addr>:<port> to create a TCP client
-udpin:<addr>:<port> to create a UDP server, listening for incoming packets
-udpout:<addr>:<port> to create a UDP client
-udpbcast:<addr>:<port> to create a UDP broadcast
-serial:<port>:<baudrate> to create a serial connection
-file:<path> to extract file data
+```sh
+mavshark --heartbeat-sys-id 254
+mavshark --heartbeat-sys-id 254 --heartbeat-comp-id 1
+```
+
+If `SnifferSysId` is configured in mavrouter, sending a heartbeat with that ID will receive all traffic across all system IDs.
+
+## **Keybindings**
+
+| Key | Action |
+|---|---|
+| `j` / `k` or arrows | Navigate messages |
+| `/` | Filter by message name or sys\_id:comp\_id |
+| `s` | Cycle sort mode (A-Z / Hz / Count) |
+| `d` / `u` | Scroll detail pane down / up |
+| `g` / `G` | Jump to first / last message (replay) |
+| `q` / `Ctrl-c` | Quit |
+
+## **Connection types**
+
+Supported via [rust-mavlink](https://github.com/mavlink/rust-mavlink):
+
+- `tcpin:<addr>:<port>` — TCP server (listen)
+- `tcpout:<addr>:<port>` — TCP client
+- `udpin:<addr>:<port>` — UDP server (listen)
+- `udpout:<addr>:<port>` — UDP client
+- `udpbcast:<addr>:<port>` — UDP broadcast
+- `serial:<port>:<baudrate>` — Serial
+- `file:<path>` — Read from file
 
 ## **License**
 
