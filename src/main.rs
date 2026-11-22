@@ -42,7 +42,7 @@ struct Cli {
     #[arg(long, default_value = "mavshark.log")]
     log_file: String,
 
-    /// Record messages to a JSON Lines file
+    /// Record messages to a JSON Lines file, or a standard MAVLink tlog if the path ends in .tlog
     #[arg(long)]
     record: Option<String>,
 
@@ -56,7 +56,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Open a recorded JSON Lines file in the replay TUI
+    /// Open a recorded JSON Lines or .tlog file in the replay TUI
     Replay {
         /// Path to the JSON Lines recording file
         file: String,

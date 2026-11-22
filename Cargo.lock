@@ -521,8 +521,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mavlink-tlog"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c46169136e460779b8c0532a0dfa898b2175888b49aa4ffe96fca3b0abcf683"
+
+[[package]]
 name = "mavshark"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -530,6 +536,7 @@ dependencies = [
  "crossterm",
  "log",
  "mavlink",
+ "mavlink-tlog",
  "ratatui",
  "serde",
  "serde_json",
